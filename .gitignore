@@ -1,0 +1,25 @@
+# Build artifacts (kept ignored as a safety net)
+node_modules/
+dist/
+
+# npm
+npm-debug.log*
+.npm/
+
+# editor / OS
+.DS_Store
+*.swp
+__pycache__/
+*.pyc
+
+# heapnote build artifacts
+challenges/heapnote
+challenges/heapnote_235
+challenges/df_test
+challenges/dup_test
+
+# fetched/built by `make setup` (large, reproducible — do not commit)
+challenges/.libc-cache/
+challenges/glibc-2.27/
+challenges/glibc-2.35/
+challenges/sysroot-2.27/
