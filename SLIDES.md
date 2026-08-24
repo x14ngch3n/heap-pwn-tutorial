@@ -64,7 +64,7 @@ Heap layout, chunks, bins, and tcache
 | 0:45–1:30 | Environment setup (pwntools, pwndbg, patchelf, pinned libcs) | `03` |
 | 1:30–2:00 | **C1** double-free→GOT, **C2** unsorted leak→`__free_hook` | `04`, `05` |
 | 2:00–2:30 | **C3** UAF→`__free_hook` (+one_gadget), **C4** safe-linking | `06`, `07` |
-| 2:30–3:00 | **Real CTF**: `baby_talk` (10 min self-read + 20 min思路/PoC) | `08` |
+| 2:30–3:00 | **Real CTF**: `baby_talk` (10 min self-read + 20 min walkthrough/PoC) | `08` |
 | 3:00–3:05 | Agentic pwn heap (5 min intro) | `09` |
 
 ---
