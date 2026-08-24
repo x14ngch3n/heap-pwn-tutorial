@@ -9,16 +9,18 @@ segment on **agentic pwn**.
 
 ```bash
 cd challenges
-make setup        # one-time: fetch pinned .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/
+make setup        # one-time: fetch .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/ dbg-2.27/ dbg-2.35/
 make all          # -> heapnote (glibc 2.27) + heapnote_235 (glibc 2.35)
 python3 c1_double_free/exp.py   # expect a shell, then: cat flag.txt
 ```
 
-`make setup` downloads signed `libc6` / `libc6-dev` `.deb` packages straight
-from the Ubuntu archive (via `curl` + `dpkg -x`, no third-party repo) and
-assembles the pinned runtimes + a linkable 2.27 sysroot. See `SLIDES.md`
-(the "Pwn Environment Setup" section) for the full toolchain + the libc-version
-rationale, and `challenges/setup.sh` for exactly what gets fetched.
+`make setup` downloads signed `libc6` / `libc6-dev` / `libc6-dbg` `.deb`
+packages straight from the Ubuntu archive (via `curl` + `dpkg -x`, no
+third-party repo) and assembles the pinned runtimes, a linkable 2.27 sysroot,
+and matching debug-symbol dirs (`dbg-2.27/`, `dbg-2.35/`) so pwndbg's `heap` /
+`main_arena` resolve. See `SLIDES.md` (the "Pwn Environment Setup" section)
+for the full toolchain + the libc-version rationale, and
+`challenges/setup.sh` for exactly what gets fetched.
 
 ## The four challenges
 
@@ -44,6 +46,7 @@ heap-pwn-tutorial/
 │   ├── flag.txt                       demo flag (cat it from the popped shell)
 │   ├── glibc-2.27/ glibc-2.35/        pinned loaders/libcs (fetched by setup.sh)
 │   ├── sysroot-2.27/                 linkable 2.27 crt + libc.so + headers (built by setup.sh)
+│   ├── dbg-2.27/ dbg-2.35/           matching libc6-dbg symbols (for pwndbg heap)
 │   ├── c1_double_free/exp.py
 │   ├── c2_unsorted_leak/exp.py
 │   ├── c3_uaf_poison/exp.py
@@ -80,6 +83,12 @@ heap-pwn-tutorial/
   purpose — later 2.27 patch levels backported the tcache double-free key,
   which would abort C1's self-loop. If you re-pin a different 2.27 build,
   C1/C3 may need adjustments (and re-run `one_gadget` for C3's alt path).
+- `setup.sh` also fetches the matching `libc6-dbg` into `dbg-2.27/`
+  (`dbg-2.35/`). The shipped libcs are stripped, so pwndbg's `heap` /
+  `main_arena` fail without these. In gdb: `set debug-file-directory
+  dbg-2.27/usr/lib/debug` then `run` (so the `.debug` attaches at load),
+  and break after the first `malloc`. Fallback if you lack dbg symbols for
+  some libc: `main_arena = &__malloc_hook + 0x10` (2.27).
 - All `exp.py` read libc offsets at runtime
   (`ELF('./glibc-2.27/libc-2.27.so')`), so they tolerate minor sub-version
   drift; C4's unsorted-head offset (`0x21ace0`) is hardcoded for

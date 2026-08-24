@@ -246,7 +246,10 @@ vis_heap_chunks      # ASCII map (the most useful one)
 
 These are fetched as **signed `.deb` packages straight from the Ubuntu archive**
 (no third-party repo, no scripts): `setup.sh` downloads them with `curl` and
-extracts with `dpkg -x` — exactly what `apt download` does.
+extracts with `dpkg -x` — exactly what `apt download` does. It also fetches the
+**matching `libc6-dbg`** for each build (→ `dbg-2.27/`, `dbg-2.35/`), so pwndbg
+can resolve `main_arena` / `heap` from real symbols instead of heuristics —
+see the next page.
 
 > **Switching libc is itself a teaching moment.** C1–C3 vs C4 differ only in
 > which pinned libc the binary is bound to. The same `heapnote.c` source becomes
@@ -302,13 +305,32 @@ Makefile; `setup.sh` builds the sysroot from the `libc6` / `libc6-dev` debs.
 
 ```bash
 cd challenges
-make setup     # fetch pinned .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/
+make setup     # fetch .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/ dbg-2.27/ dbg-2.35/
 make all       # -> heapnote (2.27) + heapnote_235 (2.35)
 ```
 
 Sanity check: `./glibc-2.27/ld-2.27.so --list ./heapnote` should resolve
 `libc.so.6` to `./glibc-2.27/`, and `readelf -V ./heapnote | grep GLIBC`
 should show only `GLIBC_2.2.x` (no `GLIBC_2.34`).
+
+---
+
+## pwndbg: resolving heap symbols (debug symbols)
+
+The pinned libcs are **stripped**, so pwndbg's `heap` / `main_arena` won't
+resolve from symbols alone (you'd get `Fail to resolve the symbol: main_arena`).
+`setup.sh` also fetches the matching `libc6-dbg` and extracts it to
+`dbg-2.27/` / `dbg-2.35/`. Point gdb at it:
+
+```javascript
+pwndbg> set debug-file-directory dbg-2.27/usr/lib/debug
+pwndbg> run            # restart so the libc's .debug attaches at load
+pwndbg> heap           # main_arena resolves — break AFTER the first malloc
+```
+
+(For C4 use `dbg-2.35/usr/lib/debug`.) No debug symbols on a random CTF libc?
+`main_arena` lives at `&__malloc_hook + 0x10` on 2.27; `__malloc_hook` is an
+exported dynsym, so you can compute the address by hand as a fallback.
 
 ---
 
@@ -356,6 +378,7 @@ is a hand-stripped, commented version of the matching how2heap technique.
 checksec ./heapnote                       # confirm: No PIE, Partial RELRO
 ./glibc-2.27/ld-2.27.so --list ./heapnote # libc.so.6 => ./glibc-2.27/...
 file  ./heapnote                          # x86-64, dynamically linked
+# pwndbg:  set debug-file-directory dbg-2.27/usr/lib/debug   # so `heap` resolves
 python3 c1_double_free/exp.py              # expect: shell, then `cat flag.txt`
 ```
 
