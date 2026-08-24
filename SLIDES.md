@@ -69,6 +69,26 @@ Heap layout, chunks, bins, and tcache
 
 ---
 
+## How C1–C4 fit together (the map)
+
+Not a difficulty ladder — **two axes** you stack. Each C adds (or swaps) one
+thing, not all of them:
+
+| | write primitive (A) | info needed (B) | libc | finisher |
+|---|---|---|---|---|
+| **C1** | double-free (A→A) | none (no-PIE) | 2.27 | GOT overwrite |
+| **C2** | double-free *(reuse C1)* | + libc leak | 2.27 | `__free_hook` |
+| **C3** | UAF-Edit *(swap A)* | libc leak *(reuse C2)* | 2.27 | `__free_hook` |
+| **C4** | UAF-Edit + safe-linking | + heap-page leak | 2.35 | GOT overwrite (hooks gone) |
+
+- **C1→C2:** add a leak. The write is byte-for-byte C1's double-free.
+- **C2→C3:** swap the write vector (double-free→UAF). Same leak, same target. Not harder — more portable (survives the 2.29 tcache key).
+- **C3→C4:** switch to 2.35. Two new walls (encrypted fd, no `__free_hook`); reuse C3's UAF + C2's libc leak, add a heap-page leak, fall back to C1's GOT overwrite. C4 = recombine C1+C2+C3 against a modern target.
+
+Three flat steps on 2.27, then the 2.35 stretch.
+
+---
+
 ## The shared binary
 
 One `heapnote` program (Add / Delete / Edit / Show). **One bug**:
@@ -348,6 +368,8 @@ One bug, four escalations · glibc 2.27 (+ 2.35 stretch)
 
 ## 04 — C1: tcache double-free → poisoning → GOT overwrite
 
+**Baseline —** the core mechanic: corrupt the tcache list → arbitrary write → hijack control flow. Every later C adds (or swaps) one thing on top of this.
+
 ---
 
 ## Goal
@@ -431,6 +453,8 @@ pwndbg> got             # after malloc #3: free -> win
 ---
 
 ## 05 — C2: unsorted bin libc leak → `__free_hook` → system
+
+**From C1:** add a libc leak. The write is byte-for-byte C1's double-free — only the target changes (`free@GOT` → `__free_hook`).
 
 ---
 
@@ -526,6 +550,8 @@ pwndbg> p &__free_hook # confirm value == system
 
 ## 06 — C3: UAF-Edit poisoning → `__free_hook` (+ one_gadget)
 
+**From C2:** swap the write vector (double-free → UAF-Edit). Same leak, same target. Not harder — more portable (survives the 2.29 tcache key).
+
 ---
 
 ## Same goal as C2, better primitive
@@ -597,6 +623,8 @@ $ cat flag.txt
 ---
 
 ## 07 — C4 (stretch): safe-linking bypass on glibc 2.35
+
+**From C3:** switch to 2.35. Two new walls (encrypted fd, no `__free_hook`); reuse C3's UAF + C2's libc leak, add a heap-page leak, fall back to C1's GOT overwrite.
 
 ---
 
@@ -731,69 +759,90 @@ Upstream: [dicegang/dicectf-quals-2024-challenges/pwn/baby-talk](https://github.
 
 ## The binary
 
-Full RELRO, PIE, canary, NX. glibc 2.27-3ubuntu1.6 (shipped). Menu:
+Full RELRO, PIE, canary, NX. glibc 2.27-3ubuntu1.6 (shipped). Menu (verified
+in asm; `str` returns the **slot index**, not the address):
 
 ```
-1. str   — malloc(user size), read data, store pointer in a global table
-2. tok   — strtok(str, delim); print each token with puts
-3. del   — free(table[idx])    ← pointer NOT nulled
+1. str  — slot=get_empty(); p=malloc(size); strs[slot]=p; read(0,p,size)
+          (raw read, NO null terminator); printf("stored at %d!", slot)
+2. tok  — strtok(strs[idx], delim); print each token with puts
+3. del  — free(strs[idx]); strs[idx]=NULL   ← clean (nulled; NOT a UAF)
 4. exit
 ```
 
-**The bug**: `del` frees without clearing the table entry → UAF + the
-`strtok` in-place null write gives a targeted single-byte overwrite with no
-overflow. Two primitives, one missing NULL, same family as `heapnote`.
+**The bug is `str`, not `del`.** `del` nulls the pointer (asm: `call free@plt`
+then `movq $0x0,(strs+idx*8)`) → **no UAF, no double-free** — unlike `heapnote`.
+The bug: `str` fills the chunk with `read(0,p,size)` and **never writes a `\0`**.
+`tok` then `strtok`s this non-terminated buffer, so it scans **past the user
+data into the next chunk's header** until `\0` or the delimiter — and writes
+`\0` over every delimiter byte **in place**. Aim the delimiter at a byte
+*inside a neighbour's size field* → a targeted null-byte corruption of chunk
+metadata, with no overflow. One primitive, one parser.
 
 ---
 
 ## How it maps to C1–C3 (the whole point of this slot)
 
+`baby_talk` is **C2 + C3 with a new fd-corruption vector**: the `strtok`
+null-byte overlap **replaces** C1's double-free. Full RELRO also kills the GOT
+route, so `__free_hook` is the mandatory target.
+
 | heapnote chapter | `baby_talk` does the same idea... |
 |---|---|
-| **C1** tcache double-free → poison fd | fill/drain the 0xf8 tcache bin; overlap later lets you overwrite a tcache fd to a chosen address |
-| **C2** unsorted-bin libc leak | reuse a freed 0xf8 chunk still carrying an unsorted-bin pointer; `tok`+`puts` leaks it → libc base |
-| **C3** `__free_hook` + `system("/bin/sh")` | poison tcache so a 0x18 alloc returns `__free_hook`; write `system`; free a `"/bin/sh"` chunk |
-| **C4** safe-linking | (not here — 2.27 has bare fd, no PROTECT_PTR; this is the *easy-mode* counterpart) |
+| **C1** double-free → poison a tcache fd | **replaced**: `strtok` `\0` → backward consolidation → overlapping chunk → overwrite a live tcache fd. No double-free (and 2.27-1.6 has the tcache key anyway). |
+| **C2** unsorted-bin libc leak | reuse a freed 0xf8 chunk; `malloc` does not zero it, so the old tcache/unsorted fd survives in the data; `tok`+`puts` reads it out |
+| **C3** `__free_hook` + `system("/bin/sh")` | same finisher: poison the 0x20 tcache fd → `__free_hook`, write `system`, free a `"/bin/sh"` chunk |
+| **C4** safe-linking | not here — 2.27 has a bare fd, no PROTECT_PTR (the easy-mode counterpart) |
 
-The novel twist that makes it a *real* challenge rather than a textbook
-`heapnote`: `strtok` writes `\0` over any byte it treats as a delimiter, so a
-delimiter chosen *inside chunk metadata* gives a null-byte corruption → forge
-fake prev-size/size → backward consolidation → overlapping chunk → tcache fd
-overwrite. No buffer overflow involved.
-
-Full RELRO also forces the `__free_hook` route (no GOT write) — the realistic
-mirror of C1's partial-RELRO GOT overwrite.
+Full RELRO is why this is the realistic mirror of C1's partial-RELRO GOT
+overwrite: no writable GOT → the libc hook is the target.
 
 ---
 
-## Leak 1 — heap base (tcache fd residual)
+## Leak — heap + libc (residual fd, NOT a UAF)
 
-Free adjacent 0xf8 chunks, reallocate one with a short string, then `tok` with
-a delimiter that stops after your controlled prefix. `puts` prints your prefix
-followed by residual tcache fd bytes → recover the page-aligned heap base.
+Prime the 0x100 class: alloc 9 × 0xf8, free all 9. 7 fill the 0x100 tcache
+(fd = heap ptrs); the overflow (tcache full) lands in the unsorted bin
+(fd/bk = `main_arena+96`, a libc ptr). Re-alloc 9 × 0xf8 sending a 1-byte
+`"A"` each time — `read` fills 1 byte, `malloc` does **not** zero the rest, so
+each chunk keeps its old fd. Then `tok`+`puts` prints the residual bytes:
+- slot 0 (tcache-origin) → heap fd → `heap_base` (page-aligned).
+- slot 7 (unsorted-origin) → libc fd → `libc.address = leak - 0x3EBE41`.
 
-## Leak 2 — libc base (unsorted-bin residual)
-
-Free a large 0xf8 chunk so it lands in the unsorted bin (fill tcache first),
-reuse it with a short prefix, `tok`+`puts` → the fd still holds an
-`main_arena`-area pointer → `libc.address = leak - 0x3EBE41` (offset for the
-shipped 2.27 build).
+No dangling pointer is read — `del` nulled the table; the chunks are
+legitimately re-allocated. The leak is "malloc never clears reused memory."
 
 ## Overlap — the `strtok` null-byte trick
 
-Shape the heap, then `tok` with a delimiter byte that sits inside a
-neighbouring chunk's size field. The `\0` shrinks the recorded size, so a later
-free does backward consolidation into attacker-shaped fake metadata → one
-allocation now overlaps another → overwrite a live tcache fd.
+```
+# prime the 0x100 tcache so later frees/allocs are LIFO-controlled
+str(0xf8, "a"*0xf8)                 # slot 9, packed full of 'a' (no '\0')
+str(0xf8, "b"); str(0xf8, "x")      # slots 10, 11
+tok(9, "\x01")                      # no '\0' in 'a'*0xf8 -> strtok runs into slot 10's
+                                    # header; slot 10 size 0x101, low byte 0x01 == delim
+                                    # -> '\0' written there; 0x101 -> 0x100: PREV_INUSE
+                                    # cleared ("prev chunk is free")
+# reclaim slot 9, sculpt a fake FREE 0xE0 chunk inside it (fd/bk/nextsize
+# point into the heap so consolidation links validate; trailing 0xE0 prev_size),
+# then free it so the fake chunk is a real unsorted-bin entry:
+del(9); str(0xf8, <fake 0xE0 chunk>); del(9)
+del(10)                             # P clear -> backward consolidation merges slot 10
+                                    # into the fake chunk -> OVERLAPS live slot 11
+```
 
-## Finish — tcache poison → `__free_hook`
+One `strtok` `\0` turns a size field into "prev is free"; the sculpted fake
+prev chunk makes consolidation produce an overlapping allocation.
+
+## Finish — poison the 0x20 tcache fd → `__free_hook`
 
 ```python
-# overlap wrote a fake 0x20 tcache chunk with fd -> __free_hook
+# two DISTINCT 0x18 frees -> 0x20 tcache counts=2 (the C3 count rule, NOT a double-free)
+q = do_str(io, 0x18, b"Q"); do_del(io, do_str(io, 0x18, b"x")); do_del(io, q)
+# the overlap writes a fake 0x21 chunk whose fd overlaps the live 0x20 tcache head:
 do_str(io, 0xF8, b"X"*0x18 + p64(0x21) + p64(libc.sym["__free_hook"]))
-binsh = do_str(io, 0x18, b"/bin/sh")            # pop poisoned chunk; head now = __free_hook
-do_str(io, 0x18, p64(libc.sym["system"]))       # alloc at __free_hook, write system
-do_del(io, binsh)                               # free("/bin/sh") -> system("/bin/sh")
+binsh_idx = do_str(io, 0x18, b"/bin/sh")     # pop head (legit); head now = __free_hook
+do_str(io, 0x18, p64(libc.sym["system"]))    # pop __free_hook; write system
+do_del(io, binsh_idx)                        # free("/bin/sh") -> system("/bin/sh")
 ```
 
 ## Live demo
@@ -810,12 +859,19 @@ Verified locally against the shipped `libc.so.6` + `ld`, no Docker.
 
 ## Takeaways
 
-- A real 2.27 challenge = C1+C2+C3 with one extra trick (the `strtok`
-  null-byte) and one harder constraint (Full RELRO → `__free_hook`, not GOT).
-- The leak-then-poison-then-hook skeleton is *the* heap pwn template; once you
-  see it, most beginner/intermediate challenges are the same shape.
-- When the binary has no overflow but a destructive parser (`strtok`,
-  `memcpy` with user len, etc.), the parser *is* the write primitive.
+- `baby_talk` = **C2 (leak) + C3 (`__free_hook`) + a new fd-corruption vector**
+  (the `strtok` null-byte overlap) that replaces C1's double-free — not
+  "C1+C2+C3 plus a trick." The overlap substitutes for the double-free, and
+  Full RELRO is why the hook (not the GOT) is the target.
+- `del` nulled the pointer; the leak reads **residual fd in re-allocated
+  chunks**, not a UAF. "Malloc never clears reused memory" is the leak
+  primitive.
+- The leak-then-poison-then-hook skeleton is *the* heap pwn template; most
+  beginner/intermediate 2.27 challenges are this shape with a different write
+  vector.
+- When the binary has no overflow but a destructive parser (`strtok`, `memcpy`
+  with user len, etc.) acting on a **non-null-terminated buffer**, the parser
+  *is* the write primitive.
 
 ---
 
