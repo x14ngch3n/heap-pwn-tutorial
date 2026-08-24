@@ -844,10 +844,8 @@ Driving an LLM agent to do heap pwn
 
 ## 09 — Agentic Pwn Heap (5 min intro)
 
-> **Presenter note:** this is a 5-minute teaser, not a lecture. Cover *The
-> pitch* + *The loop that works* only; the AEG lineage, ExploitGym/Bench/AIxCC
-> details, and the good/bad table below are **reference material** for
-> self-study, not slides to walk through live.
+> **Presenter note:** 5-minute teaser, not a lecture. Cover *The pitch* +
+> *The loop that works*; the rest is a one-slide "where to go next" pointer.
 
 ---
 
@@ -883,94 +881,18 @@ and invisible without the right `pwndbg` dumps at each step.
 
 ---
 
-## Before LLMs: traditional AEG (the lineage)
+## Where to go next
 
-Autonomous exploitation predates LLMs by ~15 years. **AEG** (Automatic
-Exploit Generation) = symbolic execution + constraint solving to *find* a
-memory-corruption bug and *synthesize* a working exploit (input + payload)
-from it — no human in the loop.
-
-- **AEG** (NDSS 2011): coined the term — from a vulnerability, auto-derive
-  the crashing input and a working exploit payload.
-- **Mayhem** (IEEE S&P 2012, *"Unleashing Mayhem on Binary Code"*): hybrid
-  symbolic + concrete execution at binary scale → ForAllSecure →
-  **won the 2016 DARPA Cyber Grand Challenge (CGC)**.
-- **HeapHopper** (USENIX Security 2018): bounded model checking over
-  sequences of heap operations (`malloc` / `free` / overflow / UAF /
-  double-free / fake-free) to automatically find which sequences yield an
-  exploitation primitive (arbitrary write, overlapping allocation). Caught
-  a real tcache weakness in glibc 2.26.
-  *AEG for the heap — the exact primitives you'll use today.*
-- **MAZE** (USENIX Security 2021): automates "heap feng shui" — the
-  grooming step before exploitation — by modeling layout manipulation as a
-  Linear Diophantine Equation and solving it to place objects where an
-  exploit needs them.
-
-Symbolic AEG is alive and has gotten *more* heap-focused: recent top-tier
-work like **SCATTER** (USENIX Security 2023, manipulation-distance-guided
-fuzzing for exploitable heap layouts) and **BAGUA** (NDSS 2023, ILP-based
-precise heap-layout manipulation) extends automated heap grooming to
-general-purpose programs. But since ~2024 a **complementary** LLM/agentic
-axis has opened — the AIxCC, ExploitGym, ExploitBench efforts below — in
-which an agent *reasons* about the heap instead of exhaustively solving
-constraints. Constraint-driven and language-driven are two axes, not a
-succession: today's strongest work often combines them.
-
----
-
-## The frontier — three efforts to know
-
-### [ExploitGym](https://www.cybergym.io/exploitgym/)
-- **Breadth-oriented, CVE-driven benchmark** for exploit agents.
-- Tasks span real CVEs across binaries, with 3 difficulty tiers.
-- Good for measuring *coverage* (can the agent solve many distinct bugs?).
-
-### [ExploitBench](https://exploitbench.ai/)
-- **Depth-oriented**; centered on V8 / browser-engine exploitation.
-- Staged scoring: an agent gets credit per exploitation stage reached
-  (leak → OOB → code-exec → sandbox escape).
-- MCP-native: designed to be driven by tool-calling agents directly.
-
-### DARPA AIxCC (AI Cyber Challenge)
-- DARPA's successor to the 2016 CGC (which Mayhem won): AI systems
-  autonomously find & patch CVEs.
-- Demonstrated at DEF CON; seeded with legacy+modern CVEs.
-- Sets the "can agents do this competitively?" benchmark the others measure
-  against.
-
-> Note: these projects move fast — exact task counts, prize figures, and
-> arXiv IDs change. Treat the above as the landscape map, not a snapshot.
-
----
-
-## What agents are good / bad at (heap pwn specifically)
-
-| Good | Bad |
-|---|---|
-| Reading decompiled C, finding the UAF/double-free | Tracking invisible heap state across many frees |
-| Writing a clean pwntools skeleton | Knowing which `one_gadget` constraint will fire |
-| The libc-offset arithmetic | The 3-malloc-rule subtleties (off-by-one in reasoning) |
-| Explaining the exploit | Reliably landing a flaky primitive live |
-
----
-
-## Practical recipe for running your own agent on a heap challenge
-
-1. Give it the binary via a binary-analysis MCP (load + info + functions).
-2. Give it a `pwntools` harness skeleton and a `pwndbg` cheat sheet.
-3. At each step, require it to paste the `vis_heap_chunks` / `tcache`
-   output into its reasoning before deciding the next action.
-4. Cap iterations; have it checkpoint a working partial exploit.
-
----
-
-## Takeaways
-
-- Agents + MCP binary-analysis + a debugger feedback loop = a real
-  (if junior) pwn teammate today.
-- ExploitGym/ExploitBench/AIxCC are where the field measures progress.
-- For beginners: the agentic loop is best used as a **tutor** (explain my
-  exploit, suggest next steps) before it is an autonomous solver.
+- **Lineage (pre-LLM AEG):** symbolic execution + constraint solving to
+  auto-find bugs and synthesize exploits — AEG (NDSS'11), Mayhem (won
+  2016 DARPA CGC), HeapHopper (heap BMC), MAZE / SCATTER / BAGUA (heap
+  grooming).
+- **Agentic frontier (2024+):** LLM agents that *reason* about the heap
+  instead of solving it — [ExploitGym](https://www.cybergym.io/exploitgym/)
+  (breadth / CVE benchmark), [ExploitBench](https://exploitbench.ai/)
+  (depth / V8), DARPA AIxCC (find + patch CVEs).
+- **For beginners:** use the agentic loop as a *tutor* (explain my exploit,
+  suggest next steps) before an autonomous solver.
 
 ---
 
