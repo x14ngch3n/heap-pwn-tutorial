@@ -196,10 +196,10 @@ pwndbg> vis_heap_chunks # ascii map of the heap
 ## See it live (pwndbg)
 
 ```
-pwndbg> tcache            # the tcache_perthread_struct + each bin
+pwndbg> tcache            # the tcache_perthread_struct + each bin (all sizes)
 pwndbg> bins              # all bins incl. unsorted
-pwndbg> tcache 0x20       # chunks in the 0x20 tcache bin
-pwndbg> heap chunks       # chunk table
+pwndbg> heap              # list all chunks (table)
+pwndbg> vis_heap_chunks   # ASCII map of the heap
 ```
 
 ---
@@ -228,11 +228,11 @@ the pinned libcs; `make all` builds both targets.
 ## pwndbg heap commands (memorize these)
 
 ```
-heap                 # list chunks
-heap chunks          # table of all chunks
-bins                 # all bins (fast/unsorted/small/large)
-tcache               # the tcache struct + per-bin lists
+heap                 # list all chunks (table)
 vis_heap_chunks      # ASCII map (the most useful one)
+bins                 # all bins: tcache + fast + unsorted + small + large
+tcache               # current thread's tcache, all per-bin lists (no size arg)
+tcachebins           # tcache bins only (-v includes empty)
 ```
 
 ---
@@ -324,13 +324,18 @@ resolve from symbols alone (you'd get `Fail to resolve the symbol: main_arena`).
 
 ```javascript
 pwndbg> set debug-file-directory dbg-2.27/usr/lib/debug
+pwndbg> set resolve-heap-via-heuristic force   # tcache is a TLS var; auto-resolve fails
 pwndbg> run            # restart so the libc's .debug attaches at load
 pwndbg> heap           # main_arena resolves — break AFTER the first malloc
+pwndbg> tcache         # needs the heuristic line above; without it: "unknown error"
 ```
 
-(For C4 use `dbg-2.35/usr/lib/debug`.) No debug symbols on a random CTF libc?
-`main_arena` lives at `&__malloc_hook + 0x10` on 2.27; `__malloc_hook` is an
-exported dynsym, so you can compute the address by hand as a fallback.
+(For C4 use `dbg-2.35/usr/lib/debug`.) `heap` resolves `main_arena` (a regular
+global) from the debug symbols alone, but `tcache` is a glibc `__thread`
+TLS variable — pwndbg's auto-resolution can't read it, so the `force` line is
+required. No debug symbols on a random CTF libc? `main_arena` lives at
+`&__malloc_hook + 0x10` on 2.27; `__malloc_hook` is an exported dynsym, so you
+can compute the address by hand as a fallback.
 
 ---
 
