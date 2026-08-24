@@ -1,4 +1,4 @@
-# Heap Pwn CTF Training Tutorial (3h, beginner)
+# Heap Pwn CTF Training Tutorial (~3h05, beginner)
 
 A self-contained, live-demoable heap-pwn course for CTF beginners. One
 shared buggy binary, four escalating challenges, runnable `exp.py` for
@@ -47,20 +47,22 @@ heap-pwn-tutorial/
 │   ├── c1_double_free/exp.py
 │   ├── c2_unsorted_leak/exp.py
 │   ├── c3_uaf_poison/exp.py
-│   └── c4_safe_linking/exp.py
-├── SLIDES.md         the full 3h deck (plain Markdown, `---` page dividers)
+│   ├── c4_safe_linking/exp.py
+│   └── baby_talk/                     real CTF capstone (DiceCTF 2024): binary + libc + solve.py
+├── SLIDES.md         the full deck (plain Markdown, `---` page dividers)
 └── handouts/student_guide.md         step-by-step solves
 ```
 
-## Agenda (3h)
+## Agenda (~3h05)
 
 | Time | Segment | Slides |
 |---|---|---|
 | 0:00–0:45 | Concepts: heap layout, chunks, bins, tcache | `01`,`02` |
 | 0:45–1:30 | Environment setup (pwntools, pwndbg, patchelf, pinned libcs) | `03` |
-| 1:30–2:15 | C1 + C2 | `04`,`05` |
-| 2:15–2:45 | C3 + C4 | `06`,`07` |
-| 2:45–3:00 | Agentic pwn heap | `08` |
+| 1:30–2:00 | C1 + C2 | `04`,`05` |
+| 2:00–2:30 | C3 + C4 | `06`,`07` |
+| 2:30–3:00 | Real CTF: `baby_talk` (10 min self-read + 20 min思路/PoC) | `08` |
+| 3:00–3:05 | Agentic pwn heap (5 min intro) | `09` |
 
 ## Teaching references
 

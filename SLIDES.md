@@ -1,6 +1,6 @@
 # Heap Pwn
 
-### A CTF beginner's course — 3 hours
+### A CTF beginner's course — ~3h05
 
 glibc tcache · double-free · UAF · unsorted-bin leak · `__free_hook`
 
@@ -56,15 +56,16 @@ Heap layout, chunks, bins, and tcache
 
 ---
 
-## 3-hour agenda
+## Agenda
 
 | Time | Segment | Files |
 |---|---|---|
 | 0:00–0:45 | Concepts: heap layout, chunks, bins, tcache | `01`, `02` |
 | 0:45–1:30 | Environment setup (pwntools, pwndbg, patchelf, pinned libcs) | `03` |
-| 1:30–2:15 | **C1** double-free→GOT, **C2** unsorted leak→`__free_hook` | `04`, `05` |
-| 2:15–2:45 | **C3** UAF→`__free_hook` (+one_gadget), **C4** safe-linking | `06`, `07` |
-| 2:45–3:00 | Agentic pwn heap (ExploitGym / ExploitBench / AIxCC) | `08` |
+| 1:30–2:00 | **C1** double-free→GOT, **C2** unsorted leak→`__free_hook` | `04`, `05` |
+| 2:00–2:30 | **C3** UAF→`__free_hook` (+one_gadget), **C4** safe-linking | `06`, `07` |
+| 2:30–3:00 | **Real CTF**: `baby_talk` (10 min self-read + 20 min思路/PoC) | `08` |
+| 3:00–3:05 | Agentic pwn heap (5 min intro) | `09` |
 
 ---
 
@@ -724,13 +725,129 @@ overwrite — the next `menu()` `puts()` pops a shell; `cat flag.txt`)
 
 ---
 
+## 08 — Real CTF: `baby_talk` (DiceCTF 2024) — 30 min
+
+A real, in-the-wild challenge that chains the exact techniques from C1–C3.
+This is the "put it together" capstone before the agentic stretch.
+
+Source / files: `challenges/baby_talk/` (`binary`, `libc.so.6`,
+`ld-linux-x86-64.so.2`, `flag.txt`, `solve.py`).
+Upstream: [dicegang/dicectf-quals-2024-challenges/pwn/baby-talk](https://github.com/dicegang/dicectf-quals-2024-challenges/tree/main/pwn/baby-talk).
+
+---
+
+## Segment plan (30 min)
+
+- **0–10 min — students read** the challenge cold. Open `binary` in pwndbg,
+  run it, map the three menu ops (`str` / `tok` / `del`), find the bug
+  themselves. No hand-holding — this is the transfer test.
+- **10–30 min — walkthrough + live PoC**: the bug, the leak chain, the
+  overlap trick, the `__free_hook` finish, then run `solve.py` live.
+
+---
+
+## The binary
+
+Full RELRO, PIE, canary, NX. glibc 2.27-3ubuntu1.6 (shipped). Menu:
+
+```
+1. str   — malloc(user size), read data, store pointer in a global table
+2. tok   — strtok(str, delim); print each token with puts
+3. del   — free(table[idx])    ← pointer NOT nulled
+4. exit
+```
+
+**The bug**: `del` frees without clearing the table entry → UAF + the
+`strtok` in-place null write gives a targeted single-byte overwrite with no
+overflow. Two primitives, one missing NULL, same family as `heapnote`.
+
+---
+
+## How it maps to C1–C3 (the whole point of this slot)
+
+| heapnote chapter | `baby_talk` does the same idea... |
+|---|---|
+| **C1** tcache double-free → poison fd | fill/drain the 0xf8 tcache bin; overlap later lets you overwrite a tcache fd to a chosen address |
+| **C2** unsorted-bin libc leak | reuse a freed 0xf8 chunk still carrying an unsorted-bin pointer; `tok`+`puts` leaks it → libc base |
+| **C3** `__free_hook` + `system("/bin/sh")` | poison tcache so a 0x18 alloc returns `__free_hook`; write `system`; free a `"/bin/sh"` chunk |
+| **C4** safe-linking | (not here — 2.27 has bare fd, no PROTECT_PTR; this is the *easy-mode* counterpart) |
+
+The novel twist that makes it a *real* challenge rather than a textbook
+`heapnote`: `strtok` writes `\0` over any byte it treats as a delimiter, so a
+delimiter chosen *inside chunk metadata* gives a null-byte corruption → forge
+fake prev-size/size → backward consolidation → overlapping chunk → tcache fd
+overwrite. No buffer overflow involved.
+
+Full RELRO also forces the `__free_hook` route (no GOT write) — the realistic
+mirror of C1's partial-RELRO GOT overwrite.
+
+---
+
+## Leak 1 — heap base (tcache fd residual)
+
+Free adjacent 0xf8 chunks, reallocate one with a short string, then `tok` with
+a delimiter that stops after your controlled prefix. `puts` prints your prefix
+followed by residual tcache fd bytes → recover the page-aligned heap base.
+
+## Leak 2 — libc base (unsorted-bin residual)
+
+Free a large 0xf8 chunk so it lands in the unsorted bin (fill tcache first),
+reuse it with a short prefix, `tok`+`puts` → the fd still holds an
+`main_arena`-area pointer → `libc.address = leak - 0x3EBE41` (offset for the
+shipped 2.27 build).
+
+## Overlap — the `strtok` null-byte trick
+
+Shape the heap, then `tok` with a delimiter byte that sits inside a
+neighbouring chunk's size field. The `\0` shrinks the recorded size, so a later
+free does backward consolidation into attacker-shaped fake metadata → one
+allocation now overlaps another → overwrite a live tcache fd.
+
+## Finish — tcache poison → `__free_hook`
+
+```python
+# overlap wrote a fake 0x20 tcache chunk with fd -> __free_hook
+do_str(io, 0xF8, b"X"*0x18 + p64(0x21) + p64(libc.sym["__free_hook"]))
+binsh = do_str(io, 0x18, b"/bin/sh")            # pop poisoned chunk; head now = __free_hook
+do_str(io, 0x18, p64(libc.sym["system"]))       # alloc at __free_hook, write system
+do_del(io, binsh)                               # free("/bin/sh") -> system("/bin/sh")
+```
+
+## Live demo
+
+```bash
+cd challenges/baby_talk
+python3 solve.py        # pops a shell, cat flag.txt
+# flag: dice{tkjctf_lmeow_fee9c2ee3952d7b9479306ddd8e477ca}
+```
+
+Verified locally against the shipped `libc.so.6` + `ld`, no Docker.
+
+---
+
+## Takeaways
+
+- A real 2.27 challenge = C1+C2+C3 with one extra trick (the `strtok`
+  null-byte) and one harder constraint (Full RELRO → `__free_hook`, not GOT).
+- The leak-then-poison-then-hook skeleton is *the* heap pwn template; once you
+  see it, most beginner/intermediate challenges are the same shape.
+- When the binary has no overflow but a destructive parser (`strtok`,
+  `memcpy` with user len, etc.), the parser *is* the write primitive.
+
+---
+
 # Part III — Agentic Pwn
 
 Driving an LLM agent to do heap pwn
 
 ---
 
-## 08 — Agentic Pwn Heap (30 min)
+## 09 — Agentic Pwn Heap (5 min intro)
+
+> **Presenter note:** this is a 5-minute teaser, not a lecture. Cover *The
+> pitch* + *The loop that works* only; the AEG lineage, ExploitGym/Bench/AIxCC
+> details, and the good/bad table below are **reference material** for
+> self-study, not slides to walk through live.
 
 ---
 

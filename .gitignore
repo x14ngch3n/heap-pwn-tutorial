@@ -23,3 +23,7 @@ challenges/.libc-cache/
 challenges/glibc-2.27/
 challenges/glibc-2.35/
 challenges/sysroot-2.27/
+
+# baby_talk: libc + ld fetched by fetch.sh (~19 MB, reproducible)
+challenges/baby_talk/libc.so.6
+challenges/baby_talk/ld-linux-x86-64.so.2
