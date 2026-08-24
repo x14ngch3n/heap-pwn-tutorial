@@ -16,7 +16,7 @@ Shared `heapnote` binary · 4 challenges · live demos
   - C2 unsorted-bin libc leak -> `__free_hook`
   - C3 UAF-Edit poisoning -> `__free_hook` (+ one_gadget)
   - C4 safe-linking bypass (glibc 2.35, stretch)
-- **Part III — Agentic pwn heap** — driving an LLM agent with pyghidra-lite MCP
+- **Part III — Agentic pwn heap** — driving an LLM agent with a binary-analysis MCP
 
 ---
 
@@ -855,7 +855,7 @@ Driving an LLM agent to do heap pwn
 
 Can an LLM agent actually *solve* a heap pwn challenge? In 2024–2026 the
 answer moved from "no" to "sometimes, with the right loop." This segment
-is a tour of the frontier, plus a live demo.
+is a 5-minute tour of the frontier.
 
 ---
 
@@ -866,8 +866,8 @@ is a tour of the frontier, plus a live demo.
         |  agent (Claude)    |
         +--------------------+
    read |                    | send actions
-  binary|  pyghidra-lite MCP | (run binary, gdb, pwntools)
-  xrefs |  + gdb/pwntools    |
+  binary|  binary-analysis   | (run binary, gdb, pwntools)
+  xrefs |  MCP + gdb/pwntools|
         +--------------------+
                 ^
                 | feed pwndbg output (heap/bins/tcache) back as context
@@ -880,40 +880,6 @@ The agent never "sees" memory directly. It reasons from **decompiled code**
 (MCP) and **debugger output** (fed back into context), then emits the next
 pwntools action. Heap pwn is hard for agents because the state is large
 and invisible without the right `pwndbg` dumps at each step.
-
----
-
-## Live demo (this environment)
-
-We drive Claude Code against `heapnote` using the **pyghidra-lite MCP**
-(Ghidra-backed binary analysis exposed as tools the agent can call):
-```
-mcp__pyghidra-lite__load        path=./challenges/heapnote
-mcp__pyghidra-lite__info        detail=full
-mcp__pyghidra-lite__functions   query=del
-mcp__pyghidra-lite__code        target=del
-mcp__pyghidra-lite__search      query="data:" type=strings
-```
-Watch the agent recover the menu, spot that `del` frees without NULLing,
-and propose the C1 double-free → GOT chain — exactly the bugs we
-hand-wrote. The three prompts to drive it live:
-
-```
-1. Analyze ./challenges/heapnote with pyghidra-lite (load → info full →
-   functions → code main/del). Tell me the menu operations and find any bug
-   where a pointer isn't cleared after free.
-2. Given that bug + no-PIE + win(), write a pwntools exploit that uses a
-   tcache double-free to overwrite free@GOT with &win, then calls free.
-3. Before each free/malloc, run `tcache` and `vis_heap_chunks` in pwndbg
-   and paste the output into your reasoning — decide the next action from
-   that state, not from memory.
-```
-
-Teaching moment: the agent usually nails the bug + menu from decompilation
-but fumbles the 3-malloc rule / dummy allocation — **agents reason about
-heap state imperfectly**, so verify each step with `pwndbg`. Prompt 3 is the
-difference between an agent that hallucinates a `counts` field and one that
-lands the exploit.
 
 ---
 
@@ -990,7 +956,7 @@ succession: today's strongest work often combines them.
 
 ## Practical recipe for running your own agent on a heap challenge
 
-1. Give it the binary via the pyghidra-lite MCP (load + info + functions).
+1. Give it the binary via a binary-analysis MCP (load + info + functions).
 2. Give it a `pwntools` harness skeleton and a `pwndbg` cheat sheet.
 3. At each step, require it to paste the `vis_heap_chunks` / `tcache`
    output into its reasoning before deciding the next action.
