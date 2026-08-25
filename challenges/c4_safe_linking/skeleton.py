@@ -36,10 +36,10 @@ TODO (fill in the stages below):
      slot whose +8 neighbour is NOT used in the menu path. (win() must
      still reach a working system@GOT.)
 
-Run:
-    cd challenges && python3 c4_safe_linking/skeleton.py
-    cd challenges && python3 c4_safe_linking/skeleton.py --demo
-NOTE: requires heapnote_235 built + patched against glibc-2.35 (make patch-235).
+Run (from the handout's challenges/ dir):
+    python3 c4_safe_linking/skeleton.py
+    python3 c4_safe_linking/skeleton.py --demo
+NOTE: the prebuilt `heapnote_235` + `glibc-2.35/` ship in the handout -- no build.
 """
 from pwn import *
 import sys

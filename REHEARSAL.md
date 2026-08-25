@@ -9,9 +9,11 @@ segment. Drill this before the live session.
 - Two kinds of live time:
   - **pwndbg-only** (Part I): `gdb ./heapnote`, drive `heap` / `vis_heap_chunks`
     / `tcache` / `bins` by hand to show the concepts.
-  - **`--demo` exploits** (C1–C4, baby_talk): `python3 <exp>.py --demo` inside
-    tmux. pwndbg attaches right pane with `break menu` (or `break print_menu`
+  - **`--demo` exploits** (C1–C4, baby_talk): live-code the exploit into the
+    handout's `skeleton.py` (`handouts/challenges/`), then `python3 cX/skeleton.py --demo`
+    inside tmux. pwndbg attaches right pane with `break menu` (or `break print_menu`
     for baby_talk) + `continue` → proc stops after **every** command.
+    (`exp.py`/`solve.py` = instructor answer keys, source repo — not in the handout.)
 - **Demo gdb rhythm (memorize):** at each `DEMO | run: <cmd> | <what>` hint,
   run `<cmd>` in the gdb pane, narrate, then `continue` in gdb to advance.
   `continue` is the pacesetter — the exp blocks at the next menu until you
@@ -19,7 +21,9 @@ segment. Drill this before the live session.
   prime loop, `enable 1` before the next hint).
 - Pre-flight (do once before the session, not live):
   `make setup && make all` in `challenges/`; verify each
-  `python3 cX_*/exp.py` pops a shell and `cat flag.txt` works.
+  `python3 cX_*/exp.py` pops a shell and `cat flag.txt` works. Then
+  `bash pack_handout.sh --zip` builds `handouts/challenges/` + `handouts/handout.zip`
+  (the live-demo dir + the student artifact).
 
 ## Time table
 
@@ -129,7 +133,9 @@ laptop."
 - pwndbg commands to memorize: `heap`, `vis_heap_chunks`, `bins`, `tcache`,
   `tcachebins`.
 - how2heap = the canonical PoC library, one file per technique per glibc
-  version. Every `exp.py` here is a hand-stripped how2heap technique.
+  version. Every `exp.py`/`solve.py` here (instructor answer keys, source repo)
+  is a hand-stripped how2heap technique; students get a `skeleton.py` (utils +
+  `TODO`) per challenge in the handout.
 
 **Transition (into Part II):** "One bug, four escalations. C1 is the core
 mechanic — everything else adds or swaps one thing on top."
@@ -138,14 +144,20 @@ mechanic — everything else adds or swaps one thing on top."
 
 # Part II — The Challenges (1:30–3:00)
 
+**`exp:` lines below are shorthand, not paste-ready:** `del` = the `delete()`
+helper; `p64(free@GOT)` / `win` / `__free_hook` / `system` mean the real vars
+(`p64(free_got)` / `p64(win_addr)` / `p64(free_hook)` / `p64(libc.sym["system"])`).
+Type the real calls into the skeleton's `TODO` blocks, then run
+`python3 cX/skeleton.py --demo` from `handouts/challenges/`.
+
 ## C1 — tcache double-free → GOT overwrite (1:30–1:45) — `--demo`
 
 **Goal (one line):** no leak, no libc; the heap bug + `-no-pie`. Overwrite
 `free@GOT` with `&win`, call `free` → shell.
 
 ```
-cd challenges
-python3 c1_double_free/exp.py --demo
+cd handouts/challenges
+python3 c1_double_free/skeleton.py --demo
 ```
 pwndbg right pane, `break menu` + `continue` → first menu stop.
 
@@ -190,7 +202,7 @@ new target: `__free_hook`."
 `free("/bin/sh")`.
 
 ```
-python3 c2_unsorted_leak/exp.py --demo
+python3 c2_unsorted_leak/skeleton.py --demo
 ```
 
 **Demo flow (3 hint stops):**
@@ -238,7 +250,7 @@ leak, same target, but survives the key."
 use-after-free + Edit — no double-free at all.
 
 ```
-python3 c3_uaf_poison/exp.py --demo
+python3 c3_uaf_poison/skeleton.py --demo
 ```
 
 **Demo flow (3 hint stops):**
@@ -273,7 +285,8 @@ python3 c3_uaf_poison/exp.py --demo
 `__free_hook`/`__malloc_hook`. `one_gadget glibc-2.27/libc-2.27.so` lists
 gadgets + stack constraints. Pro: no `/bin/sh` placement. Con:
 constraint-dependent — pre-test in-context. `system`+`/bin/sh` is the
-reliable default; flip `USE_ONE_GADGET=True` in exp.py to show the fancy alt.
+reliable default; run `python3 c3_uaf_poison/exp.py --one-gadget` (answer key,
+source repo — not in the handout) for the fancy alt.
 
 **Transition → C4:** "C1–C3 all on 2.27. C4 switches to 2.35. Two new walls:
 encrypted fd (safe-linking) and no `__free_hook`. We reuse C3's UAF + C2's
@@ -285,7 +298,7 @@ leak, add a heap-page leak, and fall back to C1's GOT overwrite."
 then GOT overwrite (hooks are gone on 2.34).
 
 ```
-python3 c4_safe_linking/exp.py --demo
+python3 c4_safe_linking/skeleton.py --demo
 ```
 
 **Demo flow (4 hint stops):**
@@ -349,8 +362,8 @@ find the bug themselves — transfer test, no hand-holding). 10–30 min
 walkthrough + live PoC.
 
 ```
-cd challenges/baby_talk
-python3 solve.py --demo        # break print_menu (this binary's per-iteration fn)
+cd handouts/challenges
+python3 baby_talk/skeleton.py --demo   # break print_menu (this binary's per-iteration fn)
 ```
 
 **The bug (correct it live — common misread):** it is **`str`, not `del`**.
@@ -525,7 +538,8 @@ the rest is a "where to go next" pointer.
   solver.
 - pwn.college + how2heap for self-study.
 
-**Close:** "Slides + challenges + exp.py in the repo. Reference: pwn.college
+**Close:** "Slides + challenges + answer keys (`exp.py`/`solve.py`) in the repo;
+students get `handout.zip` (binaries + `skeleton.py` per challenge). Reference: pwn.college
 · how2heap."
 
 ---
@@ -534,6 +548,8 @@ the rest is a "where to go next" pointer.
 
 - [ ] `make setup && make all` pre-flight; each `python3 cX_*/exp.py` pops a
       shell + reads `flag.txt` (`flag{h34p_pwn_tutr0ial_d3mo_fl4g}`).
+- [ ] `bash pack_handout.sh --zip` builds `handouts/challenges/` +
+      `handouts/handout.zip` (live-demo dir + student artifact).
 - [ ] `baby_talk`: `python3 solve.py` reads the dice flag.
 - [ ] Inside tmux, smoke one `--demo` (e.g. C1): confirm pwndbg attaches,
       `break menu` stops after each command with a clean prompt, `tcache`

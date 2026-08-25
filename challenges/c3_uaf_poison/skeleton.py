@@ -24,9 +24,9 @@ TODO (fill in the three stages below):
      no tcache-key trip on 2.29+.)
   3. Trigger: free a "/bin/sh" chunk -> system("/bin/sh").
 
-Run:
-    cd challenges && python3 c3_uaf_poison/skeleton.py
-    cd challenges && python3 c3_uaf_poison/skeleton.py --demo
+Run (from the handout's challenges/ dir):
+    python3 c3_uaf_poison/skeleton.py
+    python3 c3_uaf_poison/skeleton.py --demo
 """
 from pwn import *
 import sys

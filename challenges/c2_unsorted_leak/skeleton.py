@@ -27,9 +27,9 @@ TODO (fill in the three stages below):
   3. Trigger: allocate a chunk whose data is "/bin/sh\x00" and free it ->
      __free_hook(ptr) -> system("/bin/sh").
 
-Run:
-    cd challenges && python3 c2_unsorted_leak/skeleton.py
-    cd challenges && python3 c2_unsorted_leak/skeleton.py --demo
+Run (from the handout's challenges/ dir):
+    python3 c2_unsorted_leak/skeleton.py
+    python3 c2_unsorted_leak/skeleton.py --demo
 """
 from pwn import *
 import sys

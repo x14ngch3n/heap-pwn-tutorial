@@ -24,9 +24,9 @@ TODO (fill in the three stages below):
      system("/bin/sh"). (del does NOT null the pointer, so the freed
      note's data pointer is still valid to free again.)
 
-Run:
-    cd challenges && python3 c1_double_free/skeleton.py
-    cd challenges && python3 c1_double_free/skeleton.py --demo
+Run (from the handout's challenges/ dir):
+    python3 c1_double_free/skeleton.py
+    python3 c1_double_free/skeleton.py --demo
 """
 from pwn import *
 import sys

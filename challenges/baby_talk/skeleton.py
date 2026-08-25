@@ -39,9 +39,9 @@ TODO (fill in the stages below):
      __free_hook. Allocate to pop __free_hook, write system. Allocate a
      "/bin/sh" chunk and free it -> system("/bin/sh").
 
-Run:
-    cd challenges && python3 baby_talk/skeleton.py
-    cd challenges && python3 baby_talk/skeleton.py --demo
+Run (sets its own cwd -- runs from anywhere):
+    python3 baby_talk/skeleton.py
+    python3 baby_talk/skeleton.py --demo
 """
 from pathlib import Path
 from pwn import *

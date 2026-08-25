@@ -257,8 +257,10 @@ pwndbg> vis_heap_chunks   # ASCII map of the heap
 | **patchelf** | `apt install patchelf` | bind a binary to a chosen libc/ld |
 | **gcc / dpkg / curl** | `apt install build-essential dpkg curl` | compile heapnote, fetch pinned libcs |
 
-This whole course runs on your host — no container. One `make setup` fetches
-the pinned libcs; `make all` builds both targets.
+This whole course runs on your host — no container. Students get a prebuilt
+`handout.zip` (binaries + pinned libcs + one `skeleton.py` per challenge) —
+nothing to fetch or build. The instructor builds the binaries once beforehand
+with `make setup && make all` (source repo only, not in the handout).
 
 ---
 
@@ -318,13 +320,17 @@ A binary's libc relationship has two layers; **patchelf only touches one**:
   Frankenstein → crash). `setup.sh` makes the symlink.
 
 ```bash
+# instructor prep (source repo) -- students skip this; they get handout.zip
 cd challenges
 make setup     # fetch .debs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/
 make all       # -> heapnote (2.27) + heapnote_235 (2.35)
+bash pack_handout.sh --zip   # -> handouts/handout.zip (the student artifact)
 ```
 
-Not demoed live — the instructor runs `make setup && make all` once beforehand.
-Read `setup.sh` / the Makefile for the exact sysroot + patchelf flags.
+Not demoed live — the instructor runs `make setup && make all` once beforehand,
+then packs the handout with `pack_handout.sh`. Students just `unzip handout.zip`
+and run `python3 cX/skeleton.py` from `handouts/challenges/` — no make, no fetch. Read
+`setup.sh` / the Makefile for the exact sysroot + patchelf flags.
 
 ---
 
@@ -336,8 +342,10 @@ before, **search [how2heap](https://github.com/shellphish/how2heap)** —
 shellphish's canonical collection of working heap-exploit PoCs, one file per
 technique per glibc version. Browse the directory matching your libc version
 and read the corresponding `.c` to see the exact primitive (double-free, tcache
-poisoning, house-of-X, safe-linking bypass, ...). Every `exp.py` in this course
-is a hand-stripped, commented version of the matching how2heap technique.
+poisoning, house-of-X, safe-linking bypass, ...). Every `exp.py` / `solve.py`
+in this course — the instructor answer keys, in the source repo, NOT in the
+student handout — is a hand-stripped, commented version of the matching how2heap
+technique. Students get a `skeleton.py` (utils + TODO blocks) per challenge.
 
 ---
 
@@ -355,7 +363,9 @@ is a hand-stripped, commented version of the matching how2heap technique.
 checksec ./heapnote                       # confirm: No PIE, Partial RELRO
 ./glibc-2.27/ld-2.27.so --list ./heapnote # libc.so.6 => ./glibc-2.27/...
 file  ./heapnote                          # x86-64, dynamically linked
-python3 c1_double_free/exp.py              # expect: shell, then `cat flag.txt`
+# instructor sanity check (answer key, source repo -- NOT in the handout):
+cd challenges && python3 c1_double_free/exp.py   # expect: shell, then cat flag.txt
+# student equivalent (handout): cd handouts/challenges && python3 c1_double_free/skeleton.py
 ```
 
 ---
@@ -427,10 +437,16 @@ takes effect for #3.
 
 ## Live demo
 
+Live-coding from the handout (instructor fills the `TODO` blocks in
+`skeleton.py` on screen):
+
 ```
-cd challenges && python3 c1_double_free/exp.py
+cd handouts/challenges && python3 c1_double_free/skeleton.py          # run your exploit
+cd handouts/challenges && python3 c1_double_free/skeleton.py --demo   # pwndbg in a tmux split
 $ cat flag.txt
 ```
+
+(`exp.py` in the source repo is the instructor answer key — not in the handout.)
 
 ---
 
@@ -523,8 +539,10 @@ del(6)                  # free(ptr) -> __free_hook(ptr) -> system("/bin/sh")
 
 ## Live demo
 
+Live-coding from the handout (`skeleton.py`):
+
 ```
-cd challenges && python3 c2_unsorted_leak/exp.py
+cd handouts/challenges && python3 c2_unsorted_leak/skeleton.py
 $ cat flag.txt
 ```
 
@@ -601,14 +619,18 @@ one_gadget glibc-2.27/libc-2.27.so
   gadget works from the menu's call path. `system`+`"/bin/sh"` is the
   reliable default; one_gadget is the "fancy alternative".
 
-In `exp.py`, flip `USE_ONE_GADGET = True` and paste a pre-tested gadget.
+In the instructor answer key `exp.py`, run with `--one-gadget`
+(`python3 c3_uaf_poison/exp.py --one-gadget`) — the `skeleton.py` in the
+handout is utils-only; the one-gadget path is a pre-tested `exp.py` extra.
 
 ---
 
 ## Live demo
 
+Live-coding from the handout (`skeleton.py`):
+
 ```
-cd challenges && python3 c3_uaf_poison/exp.py
+cd handouts/challenges && python3 c3_uaf_poison/skeleton.py
 $ cat flag.txt
 ```
 
@@ -708,8 +730,10 @@ pointer guard), `__printf_function_table` (House of Husk). That's the
 
 ## Live demo
 
+Live-coding from the handout (`skeleton.py`):
+
 ```
-cd challenges && python3 c4_safe_linking/exp.py
+cd handouts/challenges && python3 c4_safe_linking/skeleton.py
 ```
 (watch the heap-page leak, the PROTECT_PTR'd fd → `puts@GOT`, then the GOT
 overwrite — the next `menu()` `puts()` pops a shell; `cat flag.txt`)
@@ -847,12 +871,15 @@ do_del(io, binsh_idx)                        # free("/bin/sh") -> system("/bin/s
 
 ## Live demo
 
+Live-coding from the handout (`baby_talk/skeleton.py` — self-contained dir,
+own libc + ld):
+
 ```bash
-cd challenges/baby_talk
-python3 solve.py        # pops a shell, cat flag.txt
+cd handouts/challenges && python3 baby_talk/skeleton.py        # pops a shell, cat flag.txt
 # flag: dice{tkjctf_lmeow_fee9c2ee3952d7b9479306ddd8e477ca}
 ```
 
+(`solve.py` in the source repo is the instructor answer key — not in the handout.)
 Verified locally against the shipped `libc.so.6` + `ld`, no Docker.
 
 ---
@@ -937,6 +964,7 @@ and invisible without the right `pwndbg` dumps at each step.
 
 # Thank you
 
-Slides + challenges + `exp.py` in the repo.  
+Slides + challenges + answer keys (`exp.py` / `solve.py`) in the repo.
+Students get `handout.zip` (binaries + `skeleton.py` per challenge).
 
 Reference: [pwn.college](https://pwn.college) · [how2heap](https://github.com/shellphish/how2heap)
