@@ -27,8 +27,6 @@ cp "$SRC/heapnote"        "$OUT/"
 cp "$SRC/heapnote_235"    "$OUT/"
 cp "$SRC/heapnote.c"      "$OUT/"     # challenge source (read the bug in C)
 cp "$SRC/flag.txt"        "$OUT/"     # local flag the exploit prints on shell
-cp "$SRC/Makefile"        "$OUT/"
-cp "$SRC/setup.sh"        "$OUT/"
 cp -r "$SRC/glibc-2.27"   "$OUT/"
 cp -r "$SRC/glibc-2.35"   "$OUT/"
 
@@ -44,7 +42,6 @@ cp "$SRC/baby_talk/binary"               "$OUT/baby_talk/"
 cp "$SRC/baby_talk/libc.so.6"            "$OUT/baby_talk/"
 cp "$SRC/baby_talk/ld-linux-x86-64.so.2" "$OUT/baby_talk/"
 cp "$SRC/baby_talk/flag.txt"             "$OUT/baby_talk/"
-cp "$SRC/baby_talk/fetch.sh"             "$OUT/baby_talk/"
 cp "$SRC/baby_talk/skeleton.py"          "$OUT/baby_talk/"
 
 # --- student lab README (generated so it always matches the packed tree) ----

@@ -5,13 +5,20 @@ challenge. It does NOT spell out the exploit commands — that is what the
 `skeleton.py` files are for. Read the guide, then implement each stage
 where the `TODO` blocks are.
 
-Set up the local lab (no Docker) and build both targets:
+The lab is self-contained — unzip it, enter the `lab/` dir, and run a
+skeleton. The binaries and pinned libcs are already included, so there is
+nothing to fetch or build:
 
 ```bash
-cd challenges
-make setup     # one-time: fetch pinned libcs -> glibc-2.27/ glibc-2.35/ sysroot-2.27/
-make all       # -> heapnote (2.27) + heapnote_235 (2.35)
+unzip handout.zip
+cd handouts/lab
+python3 c1_double_free/skeleton.py          # run your exploit
+python3 c1_double_free/skeleton.py --demo   # live pwndbg in a tmux split
 ```
+
+Run c1–c4 skeletons from the `lab/` dir (their binaries use a relative
+loader path that resolves there). The `baby_talk/` skeleton sets its own
+working dir, so it runs from anywhere.
 
 The binary for C1–C3 is `./heapnote` (glibc 2.27 — the Ubuntu 18.04 **GA**
 build `2.27-3ubuntu1`, which has **no tcache key**; don't use a later 2.27
@@ -172,8 +179,9 @@ freeing a live note. `system`+"/bin/sh" remains the reliable default; run
 
 ## C4 (stretch) — safe-linking bypass on glibc 2.35
 
-Target: `./heapnote_235` (glibc 2.35). Same source, linked/patched against
-the pinned 2.35 libc (`make patch-235`).
+Target: `./heapnote_235` (glibc 2.35). Same `heapnote.c` source as C1–C3,
+but linked/patched against the pinned 2.35 libc. The prebuilt binary is
+included in the lab; you don't build it.
 
 ### The new defense (2.32+)
 
