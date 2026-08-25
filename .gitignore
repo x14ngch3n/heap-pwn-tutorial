@@ -27,3 +27,7 @@ challenges/sysroot-2.27/
 # baby_talk: libc + ld fetched by fetch.sh (~19 MB, reproducible)
 challenges/baby_talk/libc.so.6
 challenges/baby_talk/ld-linux-x86-64.so.2
+
+# generated student handout (built by pack_handout.sh — do not commit)
+handouts/lab/
+handouts/handout.zip

@@ -26,7 +26,9 @@ def demo_hint(msg: str):
 
 
 def start():
-    io = process(str(ROOT / "binary"))
+    # cwd=ROOT: the binary's INTERP and RUNPATH are both "." (relative), so the
+    # inferior must start with baby_talk/ as its CWD for ld-linux + libc.so.6.
+    io = process(str(ROOT / "binary"), cwd=str(ROOT))
     if DEMO:
         # print_menu is called at the top of main's loop each iteration, so
         # `break print_menu` stops AFTER every command with a real pwndbg
