@@ -275,6 +275,7 @@ via `__free_hook` (not the C1/C4 GOT path).
 - Redo C1–C3 against a glibc 2.31 build, then 2.35, adapting each step.
 - Work through [pwn.college Dynamic Allocator Misuse](https://pwn.college/program-security/dynamic-allocator-misuse).
 - Study [how2heap](https://github.com/shellphish/how2heap) PoCs.
-- Try the agentic loop — the prompt sequence is in the deck's "Live demo"
-  page (SLIDES.md, Part III): drive Claude Code against `heapnote` with the
-  pyghidra-lite MCP and the three prompts there.
+- Try the agentic loop — SLIDES.md Part III sketches the loop (Claude
+  Code + a decompiler MCP + pwndbg output fed back as context) and
+  suggests starting by using it as a tutor (explain your exploit, suggest
+  next steps) before an autonomous solver.

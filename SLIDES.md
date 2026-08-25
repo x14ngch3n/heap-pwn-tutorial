@@ -777,7 +777,8 @@ Upstream: [dicegang/dicectf-quals-2024-challenges/pwn/baby-talk](https://github.
   run it, map the three menu ops (`str` / `tok` / `del`), find the bug
   themselves. No hand-holding — this is the transfer test.
 - **10–30 min — walkthrough + live PoC**: the bug, the leak chain, the
-  overlap trick, the `__free_hook` finish, then run `solve.py` live.
+  overlap trick, the `__free_hook` finish, then live-code `baby_talk/skeleton.py`
+  (handout).
 
 ---
 
