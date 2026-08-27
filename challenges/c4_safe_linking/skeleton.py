@@ -7,7 +7,7 @@ Target : ./heapnote_235  (glibc 2.35, -no-PIE, partial RELRO)
 Goal   : defeat safe-linking to tcache-poison on 2.35, then GOT-overwrite
          puts@GOT with &win -> next menu() puts() -> win() -> shell.
 
-This skeleton gives you: pwntools setup, ELF + libc load, process spawn,
+This skeleton gives you: pwntools setup, ELF load, process spawn,
 the --demo pwndbg harness, the menu helpers, and the PROTECT_PTR helper.
 YOU write the exploit.
 
@@ -20,16 +20,10 @@ To poison fd to point at a target T you must write (&fd_slot >> 12) XOR T,
 which requires knowing &fd_slot >> 12 -- i.e. the heap PAGE.
 
 TODO (fill in the stages below):
-  1. libc leak via the unsorted bin (same as C2). NOTE: on 2.34+
-     __malloc_hook is a compat NO-OP, NOT main_arena-0x10, so the C2/C3
-     trick breaks. Use the fixed offset of the unsorted-bin head (the
-     libc address a freed unsorted chunk's fd points at) from libc base.
-     Recompute it for your pinned libc: leak once, read the real base
-     from /proc/<pid>/maps, take the difference.
-  2. heap-page leak: free a tcache chunk as the ONLY entry in its bin ->
+  1. heap-page leak: free a tcache chunk as the ONLY entry in its bin ->
      its real next is NULL -> stored_fd = (&fd>>12) XOR 0 = &fd>>12.
      UAF-read that stored fd -> you have the heap page (the >>12 key).
-  3. Forge fd = PROTECT_PTR(&fd, puts@GOT) -> tcache returns puts@GOT ->
+  2. Forge fd = PROTECT_PTR(&fd, puts@GOT) -> tcache returns puts@GOT ->
      write &win -> the next menu() loop calls puts() -> win() -> shell.
      SUBTLETY: 2.34+ tcache_get() zeroes returned_ptr+8 (writes e->key=0),
      so the slot AFTER the one you overwrite also gets zeroed. Pick a GOT
@@ -47,7 +41,6 @@ import sys
 DEMO = "--demo" in sys.argv
 
 context.binary = exe = ELF("./heapnote_235")
-libc = ELF("./glibc-2.35/libc-2.35.so")
 context.log_level = "info"
 
 p = process("./heapnote_235")
@@ -97,22 +90,14 @@ win_addr = exe.symbols["win"]
 log.info("win() = %#x", win_addr)
 
 # ===========================================================================
-# TODO 1 - libc leak via the unsorted bin (2.34+: use unsorted-head offset,
-#          NOT __malloc_hook)
-# ===========================================================================
-# libc.address = ...
-# log.success("libc base = %#x", libc.address)
-
-
-# ===========================================================================
-# TODO 2 - heap-page leak via a singly-freed tcache chunk (stored fd = &fd>>12)
+# TODO 1 - heap-page leak via a singly-freed tcache chunk (stored fd = &fd>>12)
 # ===========================================================================
 # heap_page = ...
 # log.success("heap page (>>12) = %#x", heap_page)
 
 
 # ===========================================================================
-# TODO 3 - forge fd = PROTECT_PTR(&fd, puts@GOT) -> overwrite puts@GOT with
+# TODO 2 - forge fd = PROTECT_PTR(&fd, puts@GOT) -> overwrite puts@GOT with
 #          &win -> next menu() puts() -> win() -> shell
 #          (mind tcache_get zeroing returned_ptr+8)
 # ===========================================================================

@@ -61,7 +61,7 @@ note: the `note_t` struct (0x10 → 0x20 chunk) AND the data buffer.
 
 ---
 
-## How to leak libc (the mechanic you reuse in C2/C3/C4)
+## How to leak libc (the mechanic you reuse in C2/C3)
 
 tcache only serves chunk sizes 0x20–0x410. A request **>= 0x418** makes a
 0x420 chunk that tcache will NOT hold → on free it lands in the **unsorted
@@ -79,11 +79,6 @@ libc_base = leak - (__malloc_hook + 0x10) - 96
 Read every offset from the shipped libc at runtime (so it's robust across
 2.27-3ubuntu1.x sub-versions). From `libc_base` you get `system`,
 `__free_hook`, and the `"/bin/sh"` string.
-
-> **2.34+ note (C4):** `__malloc_hook` becomes a compat NO-OP, NOT
-> `main_arena-0x10`, so the formula above breaks. Use the fixed offset of
-> the unsorted-bin head from `libc_base` directly (leak once, read the real
-> base from `/proc/<pid>/maps`, take the difference).
 
 ---
 
@@ -217,10 +212,8 @@ slot → `win()` → shell.
 > `win()` must still reach a working `system@GOT` — leave that untouched.
 
 **Strategy** (in `c4_safe_linking/skeleton.py`):
-1. libc leak via the unsorted bin (use the unsorted-head offset, NOT
-   `__malloc_hook`).
-2. heap-page leak via a singly-freed tcache chunk (stored fd = `&fd>>12`).
-3. Forge `fd = PROTECT_PTR(&fd, <chosen GOT slot>)` → pop the slot → write
+1. heap-page leak via a singly-freed tcache chunk (stored fd = `&fd>>12`).
+2. Forge `fd = PROTECT_PTR(&fd, <chosen GOT slot>)` → pop the slot → write
    `&win` → next menu loop auto-triggers → shell. Mind the `+8` zeroing.
 
 ### Honest scope

