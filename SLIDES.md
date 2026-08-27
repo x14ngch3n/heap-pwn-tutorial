@@ -10,13 +10,17 @@ Shared `heapnote` binary · 4 challenges · live demos
 
 # Outline
 
-- **Part I — Concepts** — heap layout, chunks, bins, tcache (glibc 2.27)
-- **Part II — The Challenges** — one `heapnote` bug, four escalations
+- **Part I — Concepts** (0:00–1:30) — heap layout, chunks, bins, tcache; env setup
+  - 0:00–0:45 concepts (glibc 2.27)
+  - 0:45–1:30 environment setup (pwntools, pwndbg, patchelf, pinned libcs)
+- **Part II — The Challenges** (1:30–3:00) — one `heapnote` bug, four escalations
   - C1 tcache double-free -> GOT overwrite
   - C2 unsorted-bin libc leak -> `__free_hook`
   - C3 UAF-Edit poisoning -> `__free_hook` (+ one_gadget)
   - C4 safe-linking bypass (glibc 2.35, stretch)
-- **Part III — Agentic pwn heap** — driving an LLM agent with a binary-analysis MCP
+  - `baby_talk` (DiceCTF 2024) — real-CTF capstone, `strtok` overlap → `__free_hook`
+  - *1:30–2:00 C1+C2 · 2:00–2:30 C3+C4 · 2:30–3:00 baby_talk*
+- **Part III — Agentic pwn heap** (3:00–3:05) — driving an LLM agent with a binary-analysis MCP
 
 ---
 
@@ -27,7 +31,7 @@ Heap layout, chunks, bins, and tcache
 
 ---
 
-## Overview & Agenda
+## Overview & map
 
 ---
 
@@ -35,19 +39,6 @@ Heap layout, chunks, bins, and tcache
 
 - "Heap pwn" = abusing the dynamic memory allocator (glibc `malloc`/`free`) to turn memory-safety bugs into code execution.
 - Unlike stack pwn (overwriting return addresses), heap exploits corrupt the allocator's own bookkeeping to get **arbitrary read / arbitrary write / code-execution primitives**.
-
----
-
-## Agenda
-
-| Time | Segment |
-|---|---|
-| 0:00–0:45 | Concepts: heap layout, chunks, bins, tcache |
-| 0:45–1:30 | Environment setup (pwntools, pwndbg, patchelf, pinned libcs) |
-| 1:30–2:00 | **C1** double-free→GOT, **C2** unsorted leak→`__free_hook` |
-| 2:00–2:30 | **C3** UAF→`__free_hook` (+one_gadget), **C4** safe-linking |
-| 2:30–3:00 | **Real CTF**: `baby_talk` (10 min self-read + 20 min walkthrough/PoC) |
-| 3:00–3:05 | Agentic pwn heap (5 min intro) |
 
 ---
 
@@ -64,7 +55,7 @@ Not a difficulty ladder — **two axes** you stack. Each C adds (or swaps) one t
 
 - **C1→C2:** add a leak. The write is byte-for-byte C1's double-free.
 - **C2→C3:** swap the write vector (double-free→UAF). Same leak, same target. Not harder — more portable (survives the 2.29 tcache key).
-- **C3→C4:** switch to 2.35. Two new walls (encrypted fd, no `__free_hook`); reuse C3's UAF + C2's libc leak, add a heap-page leak, fall back to C1's GOT overwrite. C4 = recombine C1+C2+C3 against a modern target.
+- **C3→C4:** switch to 2.35. Two new walls (encrypted fd, no `__free_hook`); reuse C3's UAF, add a heap-page leak, fall back to C1's GOT overwrite. C4 = recombine C1+C3 against a modern target.
 
 Three flat steps on 2.27, then the 2.35 stretch.
 
@@ -541,7 +532,7 @@ $ cat flag.txt
 
 ## C4 (stretch): safe-linking bypass on glibc 2.35
 
-**From C3:** switch to 2.35. Two new walls (encrypted fd, no `__free_hook`); reuse C3's UAF + C2's libc leak, add a heap-page leak, fall back to C1's GOT overwrite.
+**From C3:** switch to 2.35. Two new walls (encrypted fd, no `__free_hook`); reuse C3's UAF, add a heap-page leak, fall back to C1's GOT overwrite.
 
 ---
 
@@ -595,9 +586,8 @@ edit(chunk, 8, p64(forged))   # the next malloc returns `target`
 
 Hooks are gone on 2.35, so the C2/C3 one-shot finisher doesn't exist. But heapnote is -no-pie + partial RELRO (writable GOT), so we reuse C1's finisher — GOT overwrite — on top of the safe-linking bypass and DO get a shell:
 
-1. unsorted-bin libc leak (same as C2),
-2. heap-page leak via a singly-freed tcache chunk (defeats safe-linking),
-3. forge fd = PROTECT_PTR(&fd, puts@GOT) → malloc returns puts@GOT → write &win → next menu() puts() → win() → system("/bin/sh").
+1. heap-page leak via a singly-freed tcache chunk (defeats safe-linking),
+2. forge fd = PROTECT_PTR(&fd, puts@GOT) → malloc returns puts@GOT → write &win → next menu() puts() → win() → system("/bin/sh").
 
 One 2.34+ subtlety: `tcache_get()` zeroes `returned_ptr+8` (`e->key=0`), so we target `puts@GOT` (its +8 neighbour `write@GOT` is never called in the menu path), not `free@GOT` (whose +8 is `puts@GOT`, which `menu()` would call and crash). `win()` uses `system@GOT`, which we leave untouched, so it still fires.
 
