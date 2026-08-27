@@ -202,8 +202,6 @@ pwndbg> vis_heap_chunks   # ASCII map of the heap
 | **pwntools** | `pip install --user pwntools` | exploit scripting, `process()`, `p64`, `ELF` |
 | **pwndbg** | `git clone https://github.com/pwndbg/pwndbg && ./setup.sh` | GDB plugin: `heap`, `bins`, `tcache`, `vis_heap_chunks` |
 | **one_gadget** | `gem install one_gadget` | find `execve("/bin/sh")` gadgets in libc |
-| **seccomp-tools** | `gem install --user-install seccomp-tools` | inspect seccomp sandbox |
-| **ROPgadget** | `pip install ROPgadget` | (auxiliary) ROP search |
 | **patchelf** | `apt install patchelf` | bind a binary to a chosen libc/ld |
 | **gcc / dpkg / curl** | `apt install build-essential dpkg curl` | compile heapnote, fetch pinned libcs |
 
