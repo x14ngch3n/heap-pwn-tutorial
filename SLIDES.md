@@ -129,6 +129,39 @@ Key idea: a freed chunk's **fd/bk pointers are stored in the chunk's user data a
 
 ---
 
+## malloc(n) — the dispatch algorithm
+
+The bins are a **priority-ordered cache hierarchy**, not a bag. The same size may live in several bins; which one `malloc` picks is **deterministic** — that determinism is what makes the heap exploitable. Search order, first hit wins:
+
+1. **tcache** — size in 0x20–0x410 AND `counts[idx] > 0` → `tcache_get` → return
+2. **fastbin** — size in 0x20–0x80 AND fastbin non-empty → pop one (and opportunistically move more fastbin entries into tcache)
+3. **unsorted bin** — walk it; every visited chunk is **sorted into its proper small/large bin**; take one if it is an exact fit, else keep walking
+4. **small bin** — size-indexed, exact match → return
+5. **large bin** — best-fit (smallest `>= size`) → split if bigger → return
+6. **top chunk** — split a new chunk off the top (the heap grows here)
+
+tcache sits at the **front** (since 2.26): it short-circuits fastbin/small/large for small sizes. Pre-2.26, fastbin was step 1. Every exploit in this course hijacks **step 1** (tcache poisoning) — the cheapest win.
+
+---
+
+## free(ptr) — where a freed chunk lands
+
+Same hierarchy, reverse direction. A freed chunk goes to the first bin that will take it:
+
+1. **tcache** — size in 0x20–0x410 AND `counts[idx] < 7` (per-bin cap) → `tcache_put`
+2. **fastbin** — size in 0x20–0x80 → fastbin push (no consolidation)
+3. **unsorted bin** — otherwise: **consolidate** with adjacent free neighbours, then push to unsorted (the triage holding area; next malloc re-sorts it in step 3)
+
+### What each version wall sits on
+
+- **2.29** — `tcache_put`/`tcache_get` check a per-chunk **tcache key** → double-free (step 1 of `free` then step 1 of `malloc` on the same chunk) is detected.
+- **2.32** — `fd` is stored as `PROTECT_PTR(&fd, next)` (**safe-linking**); step 1 still fires, but forging `fd` now needs a heap-page leak.
+- **2.34** — `__free_hook` / `__malloc_hook` **removed**; the finisher hooked onto these calls is gone.
+
+The exploit shape is always: free a chunk into a bin whose `fd` you can corrupt, then make `malloc` hand that `fd` back as something it shouldn't.
+
+---
+
 ## See it live (pwndbg)
 
 ```
